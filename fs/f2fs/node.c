@@ -2154,7 +2154,7 @@ int try_to_free_nids(struct f2fs_sb_info *sbi, int nr_shrink)
 	return nr - nr_shrink;
 }
 
-void recover_inline_xattr(struct inode *inode, struct page *page)
+static void recover_inline_xattr(struct inode *inode, struct page *page)
 {
 	void *src_addr, *dst_addr;
 	size_t inline_size;
