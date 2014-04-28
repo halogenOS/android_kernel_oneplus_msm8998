@@ -466,6 +466,8 @@ enum {
 /* vector size for gang look-up from extent cache that consists of radix tree */
 #define EXT_TREE_VEC_SIZE	64
 
+#define MAX_DIR_RA_PAGES	4	/* maximum ra pages of dir */
+
 /* for in-memory extent cache entry */
 #define F2FS_MIN_EXTENT_LEN	64	/* minimum extent length */
 
