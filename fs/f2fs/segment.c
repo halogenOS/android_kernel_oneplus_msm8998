@@ -176,6 +176,8 @@ void register_inmem_page(struct inode *inode, struct page *page)
 	set_page_private(page, (unsigned long)ATOMIC_WRITTEN_PAGE);
 	SetPagePrivate(page);
 
+	SetPagePrivate(page);
+
 	new = f2fs_kmem_cache_alloc(inmem_entry_slab, GFP_NOFS);
 
 	/* add atomic page indices to the list */
