@@ -255,6 +255,10 @@ sync_nodes:
 		goto out;
 	}
 
+	/* if cp_error was enabled, we should avoid infinite loop */
+	if (unlikely(f2fs_cp_error(sbi)))
+		goto out;
+
 	if (need_inode_block_update(sbi, ino)) {
 		f2fs_mark_inode_dirty_sync(inode, true);
 		f2fs_write_inode(inode, NULL);
