@@ -1732,6 +1732,10 @@ static int f2fs_ioc_shutdown(struct file *filp, unsigned long arg)
 		sync_meta_pages(sbi, META, LONG_MAX);
 		f2fs_stop_checkpoint(sbi, false);
 		break;
+	case F2FS_GOING_DOWN_METAFLUSH:
+		sync_meta_pages(sbi, META, LONG_MAX);
+		f2fs_stop_checkpoint(sbi);
+		break;
 	default:
 		ret = -EINVAL;
 		goto out;
