@@ -1505,6 +1505,7 @@ static int sanity_check_raw_super(struct f2fs_sb_info *sbi,
 		return 1;
 	}
 
+<<<<<<< HEAD
 	if (le32_to_cpu(raw_super->segment_count) > F2FS_MAX_SEGMENT) {
 		f2fs_msg(sb, KERN_INFO,
 			"Invalid segment count (%u)",
@@ -1514,6 +1515,10 @@ static int sanity_check_raw_super(struct f2fs_sb_info *sbi,
 
 	/* check CP/SIT/NAT/SSA/MAIN_AREA area boundary */
 	if (sanity_check_area_boundary(sbi, bh))
+=======
+	/* check CP/SIT/NAT/SSA/MAIN_AREA area boundary */
+	if (sanity_check_area_boundary(sb, raw_super))
+>>>>>>> 66ef78a... f2fs: do more integrity verification for superblock
 		return 1;
 
 	return 0;
