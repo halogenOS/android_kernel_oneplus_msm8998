@@ -58,6 +58,8 @@ struct intf_timing_params {
 	u32 v_front_porch;
 	u32 hsync_pulse_width;
 	u32 vsync_pulse_width;
+	u32 h_polarity;
+	u32 v_polarity;
 
 	u32 border_clr;
 	u32 underflow_clr;
@@ -491,7 +493,7 @@ static void mdss_mdp_video_avr_vtotal_setup(struct mdss_mdp_ctl *ctl,
 		if (sctl)
 			sctx = (struct mdss_mdp_video_ctx *)
 				sctl->intf_ctx[MASTER_CTX];
-		mdss_mdp_video_timegen_flush(ctl, ctx);
+		mdss_mdp_video_timegen_flush(ctl, sctx);
 
 		MDSS_XLOG(pinfo->min_fps, pinfo->default_fps, avr_vtotal);
 	}
@@ -624,13 +626,8 @@ static int mdss_mdp_video_timegen_setup(struct mdss_mdp_ctl *ctl,
 	display_hctl = (hsync_end_x << 16) | hsync_start_x;
 
 	den_polarity = 0;
-	if (MDSS_INTF_HDMI == ctx->intf_type) {
-		hsync_polarity = p->yres >= 720 ? 0 : 1;
-		vsync_polarity = p->yres >= 720 ? 0 : 1;
-	} else {
-		hsync_polarity = 0;
-		vsync_polarity = 0;
-	}
+	hsync_polarity = p->h_polarity;
+	vsync_polarity = p->v_polarity;
 	polarity_ctl = (den_polarity << 2)   | /*  DEN Polarity  */
 		       (vsync_polarity << 1) | /* VSYNC Polarity */
 		       (hsync_polarity << 0);  /* HSYNC Polarity */
@@ -1071,6 +1068,13 @@ static int mdss_mdp_video_stop(struct mdss_mdp_ctl *ctl, int panel_power_state)
 {
 	int intfs_num, ret = 0;
 
+	if (ctl->cdm) {
+		if (!mdss_mdp_cdm_destroy(ctl->cdm))
+			mdss_mdp_ctl_write(ctl,
+				MDSS_MDP_REG_CTL_FLUSH, BIT(26));
+		ctl->cdm = NULL;
+	}
+
 	intfs_num = ctl->intf_num - MDSS_MDP_INTF0;
 	ret = mdss_mdp_video_intfs_stop(ctl, ctl->panel_data, intfs_num);
 	if (IS_ERR_VALUE(ret)) {
@@ -1083,10 +1087,6 @@ static int mdss_mdp_video_stop(struct mdss_mdp_ctl *ctl, int panel_power_state)
 	mdss_mdp_ctl_reset(ctl, false);
 	ctl->intf_ctx[MASTER_CTX] = NULL;
 
-	if (ctl->cdm) {
-		mdss_mdp_cdm_destroy(ctl->cdm);
-		ctl->cdm = NULL;
-	}
 	return 0;
 }
 
@@ -1710,12 +1710,42 @@ static int mdss_mdp_video_display(struct mdss_mdp_ctl *ctl, void *arg)
 	return 0;
 }
 
+static int mdss_mdp_video_splash_handoff(struct mdss_mdp_ctl *ctl)
+{
+	int i, ret = 0;
+	u32 data, flush;
+
+	ret = mdss_mdp_ctl_intf_event(ctl, MDSS_EVENT_CONT_SPLASH_BEGIN,
+			NULL, CTL_INTF_EVENT_FLAG_DEFAULT);
+
+	if (ret) {
+		pr_err("%s:ctl%d failed to handle 'CONT_SPLASH_BEGIN' event\n"
+			, __func__, ctl->num);
+		return ret;
+	}
+
+	/* clear up mixer0 and mixer1 */
+	flush = 0;
+	for (i = 0; i < 2; i++) {
+		data = mdss_mdp_ctl_read(ctl,
+			MDSS_MDP_REG_CTL_LAYER(i));
+		if (data) {
+			mdss_mdp_ctl_write(ctl,
+				MDSS_MDP_REG_CTL_LAYER(i),
+				MDSS_MDP_LM_BORDER_COLOR);
+			flush |= (0x40 << i);
+		}
+	}
+	mdss_mdp_ctl_write(ctl, MDSS_MDP_REG_CTL_FLUSH, flush);
+
+	return ret;
+}
+
 int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
 	bool handoff)
 {
 	struct mdss_panel_data *pdata;
-	int i, ret = 0, off;
-	u32 data, flush;
+	int ret = 0, off;
 	struct mdss_mdp_video_ctx *ctx, *sctx = NULL;
 	struct mdss_mdp_ctl *sctl;
 
@@ -1749,29 +1779,20 @@ int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
 	}
 
 	if (!handoff) {
-		ret = mdss_mdp_ctl_intf_event(ctl, MDSS_EVENT_CONT_SPLASH_BEGIN,
-				      NULL, CTL_INTF_EVENT_FLAG_DEFAULT);
-		if (ret) {
-			pr_err("%s: Failed to handle 'CONT_SPLASH_BEGIN' event\n"
-				, __func__);
-			return ret;
-		}
+		ret = mdss_mdp_video_splash_handoff(ctl);
 
-		/* clear up mixer0 and mixer1 */
-		flush = 0;
-		for (i = 0; i < 2; i++) {
-			data = mdss_mdp_ctl_read(ctl,
-				MDSS_MDP_REG_CTL_LAYER(i));
-			if (data) {
-				mdss_mdp_ctl_write(ctl,
-					MDSS_MDP_REG_CTL_LAYER(i),
-					MDSS_MDP_LM_BORDER_COLOR);
-				flush |= (0x40 << i);
-			}
-		}
-		mdss_mdp_ctl_write(ctl, MDSS_MDP_REG_CTL_FLUSH, flush);
+		if (!ret && sctl)
+			ret = mdss_mdp_video_splash_handoff(sctl);
+
+		if (ret)
+			return ret;
 
 		mdp_video_write(ctx, MDSS_MDP_REG_INTF_TIMING_ENGINE_EN, 0);
+
+		if (sctx)
+			mdp_video_write(sctx,
+				MDSS_MDP_REG_INTF_TIMING_ENGINE_EN, 0);
+
 		mdss_mdp_video_timegen_flush(ctl, sctx);
 
 		/* wait for 1 VSYNC for the pipe to be unstaged */
@@ -1780,6 +1801,12 @@ int mdss_mdp_video_reconfigure_splash_done(struct mdss_mdp_ctl *ctl,
 		ret = mdss_mdp_ctl_intf_event(ctl,
 			MDSS_EVENT_CONT_SPLASH_FINISH, NULL,
 			CTL_INTF_EVENT_FLAG_DEFAULT);
+
+		if (!ret && sctl)
+			ret = mdss_mdp_ctl_intf_event(sctl,
+				MDSS_EVENT_CONT_SPLASH_FINISH, NULL,
+				CTL_INTF_EVENT_FLAG_DEFAULT);
+
 	}
 
 	return ret;
@@ -2117,7 +2144,8 @@ static int mdss_mdp_video_ctx_setup(struct mdss_mdp_ctl *ctl,
 		itp->width = dsc->pclk_per_line;
 		itp->xres = dsc->pclk_per_line;
 	}
-
+	itp->h_polarity = pinfo->lcdc.h_polarity;
+	itp->v_polarity = pinfo->lcdc.v_polarity;
 	itp->h_back_porch = pinfo->lcdc.h_back_porch;
 	itp->h_front_porch = pinfo->lcdc.h_front_porch;
 	itp->v_back_porch = pinfo->lcdc.v_back_porch;
