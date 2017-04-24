@@ -148,9 +148,6 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 	/* this converted inline_data should be recovered. */
 	set_inode_flag(dn->inode, FI_APPEND_WRITE);
 
-	/* this converted inline_data should be recovered. */
-	set_inode_flag(F2FS_I(dn->inode), FI_APPEND_WRITE);
-
 	/* clear inline data and flag after data writeback */
 	truncate_inline_inode(dn->inode, dn->inode_page, 0);
 	clear_inline_node(dn->inode_page);

@@ -466,8 +466,6 @@ enum {
 /* vector size for gang look-up from extent cache that consists of radix tree */
 #define EXT_TREE_VEC_SIZE	64
 
-#define MAX_DIR_RA_PAGES	4	/* maximum ra pages of dir */
-
 /* for in-memory extent cache entry */
 #define F2FS_MIN_EXTENT_LEN	64	/* minimum extent length */
 
@@ -2138,26 +2136,6 @@ static inline void *f2fs_kmalloc(struct f2fs_sb_info *sbi,
 	}
 #endif
 	return kmalloc(size, flags);
-}
-
-static inline void *f2fs_kvmalloc(size_t size, gfp_t flags)
-{
-	void *ret;
-
-	ret = kmalloc(size, flags | __GFP_NOWARN);
-	if (!ret)
-		ret = __vmalloc(size, flags, PAGE_KERNEL);
-	return ret;
-}
-
-static inline void *f2fs_kvzalloc(size_t size, gfp_t flags)
-{
-	void *ret;
-
-	ret = kzalloc(size, flags | __GFP_NOWARN);
-	if (!ret)
-		ret = __vmalloc(size, flags | __GFP_ZERO, PAGE_KERNEL);
-	return ret;
 }
 
 static inline void *f2fs_kvmalloc(size_t size, gfp_t flags)

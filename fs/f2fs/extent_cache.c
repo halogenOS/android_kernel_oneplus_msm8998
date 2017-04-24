@@ -493,8 +493,6 @@ static void f2fs_update_extent_tree_range(struct inode *inode,
 
 	trace_f2fs_update_extent_tree_range(inode, fofs, blkaddr, len);
 
-	trace_f2fs_update_extent_tree_range(inode, fofs, blkaddr, len);
-
 	write_lock(&et->lock);
 
 	if (is_inode_flag_set(inode, FI_NO_EXTENT)) {

@@ -431,7 +431,6 @@ no_delete:
 out_clear:
 	fscrypt_put_encryption_info(inode, NULL);
 	clear_inode(inode);
-	invalidate_mapping_pages(NODE_MAPPING(sbi), inode->i_ino, inode->i_ino);
 }
 
 /* caller should call f2fs_lock_op() */

@@ -1260,8 +1260,6 @@ static struct inode *f2fs_nfs_get_inode(struct super_block *sb,
 
 	if (check_nid_range(sbi, ino))
 		return ERR_PTR(-ESTALE);
-	if (unlikely(ino >= NM_I(sbi)->max_nid))
-		return ERR_PTR(-ESTALE);
 
 	/*
 	 * f2fs_iget isn't quite right if the inode is currently unallocated!
@@ -1513,7 +1511,7 @@ static int sanity_check_raw_super(struct f2fs_sb_info *sbi,
 	}
 
 	/* check CP/SIT/NAT/SSA/MAIN_AREA area boundary */
-	if (sanity_check_area_boundary(sb, raw_super))
+	if (sanity_check_area_boundary(sbi, bh))
 		return 1;
 
 	return 0;
@@ -2102,9 +2100,6 @@ try_onemore:
 							"%s", sb->s_id);
 	if (err)
 		goto free_proc;
-
-	if (!retry)
-		sbi->need_fsck = true;
 
 	/* recover fsynced data */
 	if (!test_opt(sbi, DISABLE_ROLL_FORWARD)) {

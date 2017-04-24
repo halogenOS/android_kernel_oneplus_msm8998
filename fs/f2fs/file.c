@@ -255,10 +255,6 @@ sync_nodes:
 		goto out;
 	}
 
-	/* if cp_error was enabled, we should avoid infinite loop */
-	if (unlikely(f2fs_cp_error(sbi)))
-		goto out;
-
 	if (need_inode_block_update(sbi, ino)) {
 		f2fs_mark_inode_dirty_sync(inode, true);
 		f2fs_write_inode(inode, NULL);
@@ -1732,10 +1728,6 @@ static int f2fs_ioc_shutdown(struct file *filp, unsigned long arg)
 		sync_meta_pages(sbi, META, LONG_MAX);
 		f2fs_stop_checkpoint(sbi, false);
 		break;
-	case F2FS_GOING_DOWN_METAFLUSH:
-		sync_meta_pages(sbi, META, LONG_MAX);
-		f2fs_stop_checkpoint(sbi);
-		break;
 	default:
 		ret = -EINVAL;
 		goto out;
@@ -1795,7 +1787,6 @@ static bool uuid_is_nonzero(__u8 u[16])
 static int f2fs_ioc_set_encryption_policy(struct file *filp, unsigned long arg)
 {
 	struct inode *inode = file_inode(filp);
-	int err;
 
 	f2fs_update_time(F2FS_I_SB(inode), REQ_TIME);
 

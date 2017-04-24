@@ -176,8 +176,6 @@ void register_inmem_page(struct inode *inode, struct page *page)
 	set_page_private(page, (unsigned long)ATOMIC_WRITTEN_PAGE);
 	SetPagePrivate(page);
 
-	SetPagePrivate(page);
-
 	new = f2fs_kmem_cache_alloc(inmem_entry_slab, GFP_NOFS);
 
 	/* add atomic page indices to the list */
@@ -1739,17 +1737,6 @@ static int is_next_segment_free(struct f2fs_sb_info *sbi, int type)
 	return 0;
 }
 
-static int is_next_segment_free(struct f2fs_sb_info *sbi, int type)
-{
-	struct curseg_info *curseg = CURSEG_I(sbi, type);
-	unsigned int segno = curseg->segno;
-	struct free_segmap_info *free_i = FREE_I(sbi);
-
-	if (segno + 1 < TOTAL_SEGS(sbi) && (segno + 1) % sbi->segs_per_sec)
-		return !test_bit(segno + 1, free_i->free_segmap);
-	return 0;
-}
-
 /*
  * Find a new segment from the free segments bitmap to right order
  * This function should be returned with success, otherwise BUG
@@ -2022,8 +2009,6 @@ static void allocate_segment_by_default(struct f2fs_sb_info *sbi,
 		new_curseg(sbi, type, true);
 	else if (!is_set_ckpt_flags(sbi, CP_CRC_RECOVERY_FLAG) &&
 					type == CURSEG_WARM_NODE)
-		new_curseg(sbi, type, false);
-	else if (curseg->alloc_type == LFS && is_next_segment_free(sbi, type))
 		new_curseg(sbi, type, false);
 	else if (curseg->alloc_type == LFS && is_next_segment_free(sbi, type))
 		new_curseg(sbi, type, false);
