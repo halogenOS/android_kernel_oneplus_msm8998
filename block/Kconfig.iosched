@@ -35,6 +35,8 @@ config IOSCHED_DEADLINE
 config IOSCHED_MAPLE
 	tristate "Maple I/O scheduler"
 	default y
+	---help---
+	  This is the default I/O scheduler.
 
 config IOSCHED_CFQ
 	tristate "CFQ I/O scheduler"
@@ -44,8 +46,6 @@ config IOSCHED_CFQ
 	  among all processes in the system. It should provide a fair
 	  and low latency working environment, suitable for both desktop
 	  and server systems.
-
-	  This is the default I/O scheduler.
 
 config CFQ_GROUP_IOSCHED
 	bool "CFQ Group Scheduling support"
@@ -75,7 +75,7 @@ config BFQ_GROUP_IOSCHED
 
 choice
 	prompt "Default I/O scheduler"
-	default DEFAULT_CFQ
+	default DEFAULT_MAPLE
 	help
 	  Select the I/O scheduler which will be used by default for all
 	  block devices.
