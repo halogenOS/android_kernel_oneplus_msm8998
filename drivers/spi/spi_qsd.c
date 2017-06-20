@@ -1625,7 +1625,6 @@ static int msm_spi_transfer_one(struct spi_master *master,
 		status_error =
 			msm_spi_process_transfer(dd);
     udelay(10);//ruanbanmao add for NFC spi
-//#endif
 	spin_lock_irqsave(&dd->queue_lock, flags);
 	dd->transfer_pending = 0;
 	spin_unlock_irqrestore(&dd->queue_lock, flags);
