@@ -1226,7 +1226,6 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 				(gesture_buffer[2] == 0x6d) ? Mgestrue :
 				(gesture_buffer[2] == 0x73) ? Sgestrue :
 				UnkownGestrue;
-            //#endif, ruanbanmao@bsp 2015-05-06, end.
 	}
 #endif
 
@@ -1523,7 +1522,6 @@ void int_touch(void)
 			//#ifdef REPORT_2D_W
 			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MAJOR, max(points.raw_x, points.raw_y));
 			input_report_abs(ts->input_dev, ABS_MT_TOUCH_MINOR, min(points.raw_x, points.raw_y));
-			//#endif
 #ifdef REPORT_2D_PRESSURE
             if (ts->support_ft){
                 input_report_abs(ts->input_dev,ABS_MT_PRESSURE,pres_value);
@@ -4815,7 +4813,6 @@ static void speedup_synaptics_resume(struct work_struct *work)
         }
     }
 	TPD_DEBUG("%s end!\n", __func__);
-//#endif
 }
 
 static int synaptics_ts_resume(struct device *dev)
@@ -4877,7 +4874,6 @@ static int synaptics_i2c_suspend(struct device *dev)
 					ts->pinctrl_state_suspend);
 		}
 	}
-//#endif
 	return 0;
 }
 

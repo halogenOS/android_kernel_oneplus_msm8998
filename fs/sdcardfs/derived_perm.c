@@ -205,7 +205,6 @@ int need_graft_path(struct dentry *dentry)
 			sbi->options.multi_user) {
 		ret = 1;
 	}
-//#endif
 	dput(parent);
 	return ret;
 }

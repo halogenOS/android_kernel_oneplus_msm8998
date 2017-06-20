@@ -556,7 +556,6 @@ int mdss_dsi_px_1v1_en(struct mdss_panel_data *pdata, int enable)
 	}
 	return rc;
 }
-//#endif
 
 /**
  * mdss_dsi_roi_merge() -  merge two roi into single roi
