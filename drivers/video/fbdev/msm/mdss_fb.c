@@ -674,7 +674,6 @@ static ssize_t mdss_fb_force_panel_dead(struct device *dev,
 	}
 
 	mdss_fb_report_panel_dead(mfd);
-//#endif
 	if (kstrtouint(buf, 0, &pdata->panel_info.panel_force_dead))
 		pr_err("kstrtouint buf error!\n");
 
@@ -884,7 +883,6 @@ static ssize_t mdss_fb_set_ACL(struct device *dev,
 static DEVICE_ATTR(acl, S_IRUGO | S_IWUSR | S_IWGRP,
 	mdss_fb_get_ACL, mdss_fb_set_ACL);
 
-//#endif
 static ssize_t mdss_fb_get_hbm_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -925,7 +923,6 @@ static ssize_t mdss_fb_set_hbm_mode(struct device *dev,
 static DEVICE_ATTR(hbm, S_IRUGO | S_IWUSR,
 	mdss_fb_get_hbm_mode, mdss_fb_set_hbm_mode);
 
-//#endif
 
 static ssize_t mdss_fb_get_srgb_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -968,7 +965,6 @@ static ssize_t mdss_fb_set_srgb_mode(struct device *dev,
 static DEVICE_ATTR(SRGB, S_IRUGO | S_IWUSR,
 	mdss_fb_get_srgb_mode, mdss_fb_set_srgb_mode);
 
-//#endif
 
 static ssize_t mdss_fb_get_adobe_rgb_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -1011,7 +1007,6 @@ static ssize_t mdss_fb_set_adobe_rgb_mode(struct device *dev,
 static DEVICE_ATTR(Adobe_RGB, S_IRUGO | S_IWUSR,
 	mdss_fb_get_adobe_rgb_mode, mdss_fb_set_adobe_rgb_mode);
 
-//#endif
 static ssize_t mdss_fb_get_dci_p3_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1052,7 +1047,6 @@ static ssize_t mdss_fb_set_dci_p3_mode(struct device *dev,
 
 static DEVICE_ATTR(DCI_P3, S_IRUGO | S_IWUSR,
 	mdss_fb_get_dci_p3_mode, mdss_fb_set_dci_p3_mode);
-//#endif
 static ssize_t mdss_fb_get_night_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1202,17 +1196,11 @@ static struct attribute *mdss_fb_attrs[] = {
 	&dev_attr_msm_fb_dfps_mode.attr,
 	&dev_attr_measured_fps.attr,
 	&dev_attr_acl.attr,
-//#endif
 	&dev_attr_hbm.attr,
-//#endif
 	&dev_attr_SRGB.attr,
-//#endif
 	&dev_attr_Adobe_RGB.attr,
-//#endif
 	&dev_attr_DCI_P3.attr,
-//#endif
 	&dev_attr_night_mode.attr,
-//#endif
 	&dev_attr_msm_fb_persist_mode.attr,
 	&dev_attr_idle_power_collapse.attr,
 	NULL,
@@ -2229,7 +2217,6 @@ error:
     if (!mfd->panel_info->cont_splash_enabled){
        mfd->panel_post_on = 1;
     }
-//#endif
 	return ret;
 }
 
@@ -3974,7 +3961,6 @@ skip_commit:
 		mfd->panel_post_on = 0;
 		mdss_fb_send_panel_event(mfd, MDSS_EVENT_POST_PANEL_ON, NULL);
 	}
-//#endif
 	if (!ret)
 		mdss_fb_update_backlight(mfd);
 

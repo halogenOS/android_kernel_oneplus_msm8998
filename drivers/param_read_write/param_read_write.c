@@ -765,7 +765,6 @@ int get_param_nvm_boarddata(uint * nvm_boarddata_select)
 	return ret;
 }
 EXPORT_SYMBOL(get_param_nvm_boarddata);
-//#endif /* VENDOR_EDIT */
 
 int get_param_pcba_number(char *pcba_number_select)
 {

@@ -2845,7 +2845,6 @@ retry:
                 //printk("%s to waken by %5d:%5d\n", current->comm, task_thread_info(current)->tgid, task_thread_info(current)->pid);
                 //printk("%s to waken by %5d:%5d\n", current->comm, t->from->proc->pid, t->from->pid);
             }
-           //#endif
 		} break;
 		case BINDER_WORK_TRANSACTION_COMPLETE: {
 			cmd = BR_TRANSACTION_COMPLETE;
