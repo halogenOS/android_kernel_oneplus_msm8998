@@ -3112,7 +3112,6 @@ static const struct pid_entry tgid_base_stuff[] = {
 	REG("timerslack_ns", S_IRUGO|S_IWUGO, proc_pid_set_timerslack_ns_operations),
 	//MaJunhai@OnePlus..MultiMediaService, add /proc/process/task/taskid/wakeup || /proc/process/wakeup for ion tracking
 	REG("wakeup",  S_IRUGO, proc_wakeup_operations),
-	//#endif
 
 };
 
@@ -3498,7 +3497,6 @@ static const struct pid_entry tid_base_stuff[] = {
 #endif
 //MaJunhai@OnePlus..MultiMediaService, add /proc/process/task/taskid/wakeup || /proc/process/wakeup for ion tracking
     REG("wakeup",  S_IRUGO, proc_wakeup_operations),
-//#endif
 };
 
 static int proc_tid_base_readdir(struct file *file, struct dir_context *ctx)
