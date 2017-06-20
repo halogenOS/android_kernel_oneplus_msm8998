@@ -380,7 +380,6 @@ static ssize_t p61_dev_read(struct file *filp, char *buf, size_t count,
         P61_ERR_MSG(KERN_ALERT "Invalid length (min : 258) [%d] \n", (int)count);
         return -EINVAL;
     }*/
-    //#endif
     mutex_lock(&p61_dev->read_mutex);
     if (count > MAX_BUFFER_SIZE)
     {

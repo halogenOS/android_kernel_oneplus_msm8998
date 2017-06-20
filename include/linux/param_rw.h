@@ -183,7 +183,6 @@ typedef struct
     param_product_desc_head_t sid_head;
     /* Only for wlan evm chip */
     int use_special_boarddata;
-    //#endif /* VENDOR_EDIT */
     //Add value must below here
 }param_misc_t;
 
@@ -293,7 +292,6 @@ int get_param_gamma_select(uint * gamma_select);
 int get_param_pcba_number(char * pcbe_number);
 /* Only for wlan evm chip */
 int get_param_nvm_boarddata(uint * nvm_boarddata_select);
-//#endif /* VENDOR_EDIT */
 //yankelong add
 int set_param_lcm_srgb_mode(uint * lcm_srgb_mdoe);
 int get_param_lcm_srgb_mode(uint *lcm_srgb_mode);

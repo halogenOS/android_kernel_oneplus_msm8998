@@ -302,7 +302,6 @@ static void _ion_buffer_destroy(struct kref *kref)
 	mutex_unlock(&dev->buffer_lock);
     //MaJunhai@OnePlus..MultiMediaService, add /proc/process/task/taskid/wakeup || /proc/process/wakeup for ion tracking
   //  printk("[%5d:%5d] destroy ion buffer %p\n", current->tgid, current->pid, buffer);
-    //#endif
 
 	if (heap->flags & ION_HEAP_FLAG_DEFER_FREE)
 		ion_heap_freelist_add(heap, buffer);
@@ -356,7 +355,6 @@ static void ion_buffer_remove_from_handle(struct ion_buffer *buffer)
             buffer->client_pid = task_thread_info(current)->pid;
            // printk("[%5d:%5d]ion buffer %p: client_tgid %d client_pid %d\n", current->tgid, current->pid, buffer, buffer->client_tgid, buffer->client_pid);
         //}
-        //#endif
 
 		atomic_sub(buffer->size, &buffer->heap->total_handles);
 	}
@@ -574,7 +572,6 @@ static struct ion_handle *__ion_alloc(struct ion_client *client, size_t len,
 		if (!IS_ERR(buffer))
          //   printk("[%5d:%5d] create ion buffer %p\n", current->tgid, current->pid, buffer);
 			break;
-        //#endif
 		trace_ion_alloc_buffer_fallback(client->name, heap->name, len,
 					    heap_id_mask, flags,
 					    PTR_ERR(buffer));
@@ -1824,7 +1821,6 @@ static int ion_debug_heap_show(struct seq_file *s, void *unused)
                                buffer->size, buffer->kmap_cnt,
                                atomic_read(&buffer->ref.refcount), buffer->heap->id, buffer->handle_count);
         }
-        //#endif
 	}
 	mutex_unlock(&dev->buffer_lock);
 	seq_puts(s, "----------------------------------------------------\n");
