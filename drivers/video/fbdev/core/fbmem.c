@@ -1078,7 +1078,6 @@ fb_blank(struct fb_info *info, int blank)
         pr_err("blank on start\n");
     else if (blank == FB_BLANK_POWERDOWN)
         pr_err("blank off start\n");
-//#endif
 	early_ret = fb_notifier_call_chain(FB_EARLY_EVENT_BLANK, &event);
 
 	if (info->fbops->fb_blank)
@@ -1098,7 +1097,6 @@ fb_blank(struct fb_info *info, int blank)
         pr_err("blank on end\n");
     else if (blank == FB_BLANK_POWERDOWN)
         pr_err("blank off end\n");
-//#endif
  	return ret;
 }
 EXPORT_SYMBOL(fb_blank);

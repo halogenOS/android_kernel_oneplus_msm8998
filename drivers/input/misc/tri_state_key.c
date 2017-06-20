@@ -81,7 +81,6 @@ static int set_gpio_by_pinctrl(void)
 	printk(KERN_ERR "tristate_key set_gpio_by_pinctrl. \n");
 	return pinctrl_select_state(switch_data->key_pinctrl, switch_data->set_state);
 }
-//#endif
 static void switch_dev_work(struct work_struct *work)
 {
 
@@ -227,7 +226,6 @@ static int tristate_dev_probe(struct platform_device *pdev)
 	}
 
 	set_gpio_by_pinctrl();
-//#endif
 	//switch_data->last_type = MODE_UNKNOWN;
 
 	//tristate_supply_init();
