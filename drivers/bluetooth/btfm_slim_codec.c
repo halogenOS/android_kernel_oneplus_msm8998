@@ -26,11 +26,6 @@
 #include <sound/tlv.h>
 #include "btfm_slim.h"
 
-int bt_soc_enable_status = 0;
-
-
-int bt_soc_enable_status = 0;
-
 
 int bt_soc_enable_status = 0;
 
