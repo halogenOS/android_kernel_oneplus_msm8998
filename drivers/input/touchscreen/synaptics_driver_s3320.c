@@ -1364,6 +1364,7 @@ static void gesture_judge(struct synaptics_ts_data *ts)
 	}
     TPD_DEBUG("%s end!\n",__func__);
 }
+
 /***************end****************/
 static char prlog_count = 0;
 #ifdef REPORT_2D_PRESSURE
