@@ -43,6 +43,7 @@
 
 /* david@bsp mark temp */
 //#include "../oneplus/coretech/crpl_helper.h"
+//#endif
 
 /* david.liu@bsp, 20161004 Add BQ27411 support */
 #define CONFIG_GAUGE_BQ27411		1
@@ -720,6 +721,7 @@ out:
 
 /* david@bsp mark temp */
 //	ctech_crpl_hook_battery_capacity(soc_calib);
+//#endif
 
 	return soc_calib;
 }

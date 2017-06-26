@@ -442,6 +442,7 @@ __skip_base:
 	case 5:
 		irq_bits = 0x05;
 		break;
+//#endif	/* OPTi93X */
 	case 7:
 		irq_bits = 0x01;
 		break;

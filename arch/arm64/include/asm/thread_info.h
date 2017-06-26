@@ -53,6 +53,7 @@ struct thread_info {
     //MaJunhai@OnePlus..MultiMediaService, add /proc/process/task/taskid/wakeup || /proc/process/wakeup for ion tracking
     pid_t       tgid;
     pid_t       pid;
+    //#endif
 };
 
 #define INIT_THREAD_INFO(tsk)						\

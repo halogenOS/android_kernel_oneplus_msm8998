@@ -2564,6 +2564,7 @@ static enum res_abort acornscsi_do_abort(AS_Host *host, struct scsi_cmnd *SCpnt)
 		 */
 //#if (DEBUG & DEBUG_ABORT)
 		printk("on issue queue ");
+//#endif
 		res = res_success;
 	} else if (queue_remove_cmd(&host->queues.disconnected, SCpnt)) {
 		/*
@@ -2575,12 +2576,14 @@ static enum res_abort acornscsi_do_abort(AS_Host *host, struct scsi_cmnd *SCpnt)
 		 */
 //#if (DEBUG & DEBUG_ABORT)
 		printk("on disconnected queue ");
+//#endif
 		res = res_success;
 	} else if (host->SCpnt == SCpnt) {
 		unsigned long flags;
 
 //#if (DEBUG & DEBUG_ABORT)
 		printk("executing ");
+//#endif
 
 		local_irq_save(flags);
 		switch (host->scsi.phase) {
@@ -2626,6 +2629,7 @@ static enum res_abort acornscsi_do_abort(AS_Host *host, struct scsi_cmnd *SCpnt)
 		host->origSCpnt = NULL;
 //#if (DEBUG & DEBUG_ABORT)
 		printk("waiting for execution ");
+//#endif
 		res = res_success_clear;
 	} else
 		printk("unknown ");
@@ -2669,6 +2673,7 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
 	case res_success_clear:
 //#if (DEBUG & DEBUG_ABORT)
 		printk("clear ");
+//#endif
 		clear_bit(SCpnt->device->id * 8 +
 			  (u8)(SCpnt->device->lun & 0x7), host->busyluns);
 
@@ -2680,6 +2685,7 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
 	case res_success:
 //#if (DEBUG & DEBUG_ABORT)
 		printk("success\n");
+//#endif
 		result = SUCCESS;
 		break;
 
@@ -2691,6 +2697,7 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
 	case res_snooze:
 //#if (DEBUG & DEBUG_ABORT)
 		printk("snooze\n");
+//#endif
 		result = FAILED;
 		break;
 
@@ -2704,6 +2711,7 @@ int acornscsi_abort(struct scsi_cmnd *SCpnt)
 		result = FAILED;
 //#if (DEBUG & DEBUG_ABORT)
 		printk("not running\n");
+//#endif
 		break;
 	}
 
