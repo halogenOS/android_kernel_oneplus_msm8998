@@ -215,6 +215,11 @@ static int dload_set(const char *val, struct kernel_param *kp)
 	return 0;
 }
 #else
+int oem_get_download_mode(void)
+{
+	return 0;
+}
+
 static void set_dload_mode(int on)
 {
 	return;
@@ -308,10 +313,12 @@ static void msm_restart_prepare(const char *cmd)
 		need_warm_reset = (get_dload_mode() ||
 				(cmd != NULL && cmd[0] != '\0'));
 	}
+#ifdef CONFIG_QCOM_DLOAD_MODE
 	if (!download_mode &&
 			(in_panic || restart_mode == RESTART_DLOAD)) {
 		oem_panic_record = true;
 	}
+#endif
 	qpnp_pon_set_restart_reason(0x00);
 
 	/* Hard reset the PMIC unless memory contents must be maintained. */
