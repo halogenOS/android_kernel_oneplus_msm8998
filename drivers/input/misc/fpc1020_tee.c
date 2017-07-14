@@ -54,6 +54,9 @@
 
 #include <linux/project_info.h>
 
+#pragma GCC push_options
+#pragma GCC optimize ("Ofast")
+
 static unsigned int ignor_home_for_ESD = 0;
 module_param(ignor_home_for_ESD, uint, S_IRUGO | S_IWUSR);
 
@@ -558,6 +561,8 @@ static int fpc1020_probe(struct platform_device *pdev)
 exit:
 	return rc;
 }
+
+#pragma GCC pop_options
 
 static struct of_device_id fpc1020_of_match[] = {
 	{ .compatible = "fpc,fpc1020", },
