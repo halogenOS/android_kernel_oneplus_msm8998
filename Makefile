@@ -628,7 +628,7 @@ KBUILD_CFLAGS += $(call cc-option,-fno-store-merging,)
 KBUILD_CFLAGS += $(call cc-disable-warning,array-bounds)
 # Kill format truncation warnings
 KBUILD_CFLAGS += $(call cc-disable-warning,format-truncation,)
-KBUILD_CFLAGS += -Wno-bool-compare
+KBUILD_CFLAGS += $(call cc-disable-warning,bool-compare,)
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
