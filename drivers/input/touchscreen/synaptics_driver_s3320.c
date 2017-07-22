@@ -4962,11 +4962,7 @@ static int synaptics_i2c_suspend(struct device *dev)
 			                           ts->pinctrl_state_suspend);
 		}
 	}
-<<<<<<< HEAD
 
-//#endif
-=======
->>>>>>> 4daf218... Get rid of these unnecessary endifs
 	return 0;
 }
 
