@@ -45,10 +45,14 @@ typedef enum {
  * see KeyHandler.java in device/oppo/common/keyhandler
  */
 
-#define KEY_MODE_TOTAL_SILENCE  600
+#define KEY_MODE_BASE           600
+
+#define KEY_MODE_TOTAL_SILENCE  KEY_MODE_BASE
 #define KEY_MODE_ALARMS_ONLY    601
 #define KEY_MODE_PRIORITY_ONLY  602
 #define KEY_MODE_NONE           603
+
+#define KEY_MODE_MAX            KEY_MODE_NONE
 
 static int current_mode = MODE_UNKNOWN;
 
@@ -186,7 +190,7 @@ switch_dev_get_devtree_pdata(struct device *dev)
 		}\
 		if (sscanf(buf, "%d", &data) != 1)\
 			return t;\
-		if (data < 600 || data > 603)\
+		if (data < KEY_MODE_BASE || data > KEY_MODE_MAX)\
 			return t;\
 		keyCode_slider_##WHICH = data;\
 		if (current_mode == 1)\
