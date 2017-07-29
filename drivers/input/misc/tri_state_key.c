@@ -51,8 +51,10 @@ typedef enum {
 #define KEY_MODE_ALARMS_ONLY    601
 #define KEY_MODE_PRIORITY_ONLY  602
 #define KEY_MODE_NONE           603
+#define KEY_MODE_VIBRATE        604
+#define KEY_MODE_RING           605
 
-#define KEY_MODE_MAX            KEY_MODE_NONE
+#define KEY_MODE_MAX            KEY_MODE_RING
 
 static int current_mode = MODE_UNKNOWN;
 
@@ -262,6 +264,8 @@ static int tristate_dev_probe(struct platform_device *pdev)
 	set_bit(KEY_MODE_ALARMS_ONLY, switch_data->input->keybit);
 	set_bit(KEY_MODE_PRIORITY_ONLY, switch_data->input->keybit);
 	set_bit(KEY_MODE_NONE, switch_data->input->keybit);
+	set_bit(KEY_MODE_VIBRATE, switch_data->input->keybit);
+	set_bit(KEY_MODE_RING, switch_data->input->keybit);
 
 	input_set_drvdata(switch_data->input, switch_data);
 
