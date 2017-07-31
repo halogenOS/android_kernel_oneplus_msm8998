@@ -2386,6 +2386,7 @@ CONFIG_POWER_RESET_SYSCON=y
 # Qualcomm Technologies Inc Charger and Fuel Gauge support
 #
 CONFIG_FG_BQ27541=y
+CONFIG_FORCE_FAST_CHARGE=y
 CONFIG_ONEPLUS_FASTCHG=y
 # CONFIG_QPNP_SMBCHARGER is not set
 # CONFIG_QPNP_FG is not set
