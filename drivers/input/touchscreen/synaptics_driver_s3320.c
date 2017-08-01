@@ -1658,6 +1658,9 @@ INT_TOUCH_END:
 
 static void int_key_report_s3508(struct synaptics_ts_data *ts)
 {
+	if (ts->is_suspended == 1)
+		return;
+
 	int ret = 0;
 	int F1A_0D_DATA00 = 0x00;
 	int button_key;
