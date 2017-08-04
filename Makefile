@@ -630,6 +630,13 @@ KBUILD_CFLAGS += $(call cc-disable-warning,array-bounds)
 KBUILD_CFLAGS += $(call cc-disable-warning,format-truncation,)
 KBUILD_CFLAGS += $(call cc-disable-warning,bool-compare,)
 KBUILD_CFLAGS += $(call cc-disable-warning,misleading-indentation,)
+# Disable certain new GCC 7.1.x warnings
+KBUILD_CFLAGS += $(call cc-disable-warning,duplicate-decl-specifier)
+KBUILD_CFLAGS += $(call cc-disable-warning,bool-operation)
+KBUILD_CFLAGS += $(call cc-disable-warning,format-overflow)
+KBUILD_CFLAGS += $(call cc-disable-warning,parentheses)
+KBUILD_CFLAGS += $(call cc-disable-warning,stringop-overflow)
+KBUILD_CFLAGS += $(call cc-disable-warning,int-in-bool-context)
 
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
