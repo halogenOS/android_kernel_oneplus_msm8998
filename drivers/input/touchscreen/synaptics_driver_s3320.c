@@ -1666,7 +1666,7 @@ static void int_key_report_s3508(struct synaptics_ts_data *ts)
 	int keycode_right;
 
     if (ts->is_suspended == 1)
-            return
+            return;
 
 	ret = synaptics_rmi4_i2c_write_byte(ts->client, 0xff, 0x02);
 
