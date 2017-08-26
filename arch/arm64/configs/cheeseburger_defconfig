@@ -1,3 +1,4 @@
+CONFIG_LOCALVERSION="-halogenOS-OreoBurger"
 #
 # Automatically generated file; DO NOT EDIT.
 # Linux/arm64 4.4.95 Kernel Configuration
@@ -44,7 +45,6 @@ CONFIG_BUILDTIME_EXTABLE_SORT=y
 CONFIG_INIT_ENV_ARG_LIMIT=32
 CONFIG_CROSS_COMPILE=""
 # CONFIG_COMPILE_TEST is not set
-CONFIG_LOCALVERSION="-unicornblood-chzburger-o"
 # CONFIG_LOCALVERSION_AUTO is not set
 CONFIG_DEFAULT_HOSTNAME="(none)"
 CONFIG_SWAP=y
