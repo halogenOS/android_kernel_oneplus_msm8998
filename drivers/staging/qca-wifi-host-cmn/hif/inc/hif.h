@@ -147,6 +147,7 @@ struct qca_napi_info {
 	/* will only be present for data rx CE's */
 	void (*lro_flush_cb)(void *);
 	void                 *lro_ctx;
+	qdf_spinlock_t lro_unloading_lock;
 };
 
 /**

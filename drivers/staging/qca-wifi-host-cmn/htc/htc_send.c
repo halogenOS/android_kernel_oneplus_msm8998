@@ -549,7 +549,6 @@ static A_STATUS htc_issue_packets(HTC_TARGET *target,
 	HTC_FRAME_HDR *pHtcHdr;
 	uint32_t data_attr = 0;
 	enum qdf_bus_type bus_type;
-	QDF_STATUS ret;
 
 	bus_type = hif_get_bus_type(target->hif_dev);
 
@@ -619,16 +618,9 @@ static A_STATUS htc_issue_packets(HTC_TARGET *target,
 			 */
 			if (pPacket->PktInfo.AsTx.
 			    Flags & HTC_TX_PACKET_FLAG_FIXUP_NETBUF) {
-				ret = qdf_nbuf_map(target->osdev,
-					GET_HTC_PACKET_NET_BUF_CONTEXT
-						(pPacket), QDF_DMA_TO_DEVICE);
-				if (ret != QDF_STATUS_SUCCESS) {
-					AR_DEBUG_PRINTF(ATH_DEBUG_ERR,
-					  ("%s: nbuf map failed, endpoint %p\n",
-					   __func__, pEndpoint));
-					status = A_ERROR;
-					break;
-				}
+				qdf_nbuf_map(target->osdev,
+					     GET_HTC_PACKET_NET_BUF_CONTEXT
+						     (pPacket), QDF_DMA_TO_DEVICE);
 			}
 		}
 		LOCK_HTC_TX(target);
@@ -1355,7 +1347,6 @@ A_STATUS htc_send_pkts_multiple(HTC_HANDLE HTCHandle, HTC_PACKET_QUEUE *pPktQueu
 	HTC_PACKET *pPacket;
 	qdf_nbuf_t netbuf;
 	HTC_FRAME_HDR *pHtcHdr;
-	QDF_STATUS status;
 
 	AR_DEBUG_PRINTF(ATH_DEBUG_SEND,
 			("+htc_send_pkts_multiple: Queue: %p, Pkts %d \n",
@@ -1413,15 +1404,9 @@ A_STATUS htc_send_pkts_multiple(HTC_HANDLE HTCHandle, HTC_PACKET_QUEUE *pPktQueu
 		 * mapped.  This only applies to non-data frames, since data frames
 		 * were already mapped as they entered into the driver.
 		 */
-		status = qdf_nbuf_map(target->osdev,
-				GET_HTC_PACKET_NET_BUF_CONTEXT(pPacket),
-				QDF_DMA_TO_DEVICE);
-		if (status != QDF_STATUS_SUCCESS) {
-			AR_DEBUG_PRINTF(ATH_DEBUG_ERR,
-			   ("%s: nbuf map failed, endpoint %p, seq_no. %d\n",
-			   __func__, pEndpoint, pEndpoint->SeqNo));
-			return A_ERROR;
-		}
+		qdf_nbuf_map(target->osdev,
+			     GET_HTC_PACKET_NET_BUF_CONTEXT(pPacket),
+			     QDF_DMA_TO_DEVICE);
 
 		pPacket->PktInfo.AsTx.Flags |= HTC_TX_PACKET_FLAG_FIXUP_NETBUF;
 	}

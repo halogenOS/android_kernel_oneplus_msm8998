@@ -1000,7 +1000,6 @@ static const hdd_freq_chan_map_t freq_chan_map[] = {
 #define WE_CLEAR_STATS                        86
 /* Private sub ioctl for starting/stopping the profiling */
 #define WE_START_FW_PROFILE                      87
-
 /*
  * <ioctl>
  * setChanChange - Initiate channel change
@@ -1027,28 +1026,6 @@ static const hdd_freq_chan_map_t freq_chan_map[] = {
  */
 #define WE_SET_CHANNEL                        88
 #define WE_SET_CONC_SYSTEM_PREF               89
-
-/*
- * <ioctl>
- * wow_ito - sets the timeout value for inactivity data while
- * in power save mode during wow
- *
- * @INPUT: int1â€¦..int255
- *
- * @OUTPUT: None
- *
- * This IOCTL set the timeout value for inactivity data in power save mode
- *
- * @E.g: iwpriv wlan0 wow_ito 20
- *
- * Supported Feature: STA
- *
- * Usage: External
- *
- * </ioctl>
-*/
-#define WE_SET_WOW_DATA_INACTIVITY_TO    90
-
 
 /* Private ioctls and their sub-ioctls */
 #define WLAN_PRIV_SET_NONE_GET_INT    (SIOCIWFIRSTPRIV + 1)
@@ -3389,7 +3366,6 @@ static void hdd_get_rssi_cb(int8_t rssi, uint32_t staId, void *pContext)
 {
 	struct statsContext *pStatsContext;
 	hdd_adapter_t *pAdapter;
-	hdd_station_ctx_t *pHddStaCtx;
 
 	if (ioctl_debug) {
 		pr_info("%s: rssi [%d] STA [%d] pContext [%p]\n",
@@ -3403,7 +3379,6 @@ static void hdd_get_rssi_cb(int8_t rssi, uint32_t staId, void *pContext)
 
 	pStatsContext = pContext;
 	pAdapter = pStatsContext->pAdapter;
-	pHddStaCtx = WLAN_HDD_GET_STATION_CTX_PTR(pAdapter);
 
 	/* there is a race condition that exists between this callback
 	 * function and the caller since the caller could time out
@@ -3432,15 +3407,11 @@ static void hdd_get_rssi_cb(int8_t rssi, uint32_t staId, void *pContext)
 	/* paranoia: invalidate the magic */
 	pStatsContext->magic = 0;
 
-	/* update rssi only if its valid else return previous valid rssi */
-	if (rssi)
-		pAdapter->rssi = rssi;
+	/* copy over the rssi */
+	pAdapter->rssi = rssi;
 
-	/* for new connection there might be no valid previous RSSI */
-	if (!pAdapter->rssi)
-		hdd_get_rssi_snr_by_bssid(pAdapter,
-			pHddStaCtx->conn_info.bssId.bytes,
-			&pAdapter->rssi, NULL);
+	if (pAdapter->rssi > 0)
+		pAdapter->rssi = 0;
 
 	/* notify the caller */
 	complete(&pStatsContext->completion);
@@ -3748,28 +3719,25 @@ hdd_get_link_speed_cb(tSirLinkSpeedInfo *pLinkSpeed, void *pContext)
  * This function will send a query to SME for the linkspeed of the
  * given peer, and then wait for the callback to be invoked.
  *
- * Return: Errno
+ * Return: QDF_STATUS_SUCCESS if linkspeed data is available,
+ * otherwise a QDF_STATUS_E_** error.
  */
-int wlan_hdd_get_linkspeed_for_peermac(hdd_adapter_t *pAdapter,
-				       struct qdf_mac_addr macAddress)
-{
+QDF_STATUS wlan_hdd_get_linkspeed_for_peermac(hdd_adapter_t *pAdapter,
+					      struct qdf_mac_addr macAddress) {
 	QDF_STATUS status;
-	int errno;
 	unsigned long rc;
 	static struct linkspeedContext context;
 	tSirLinkSpeedInfo *linkspeed_req;
 
 	if (NULL == pAdapter) {
 		hdd_err("pAdapter is NULL");
-		return -EINVAL;
+		return QDF_STATUS_E_FAULT;
 	}
-
 	linkspeed_req = qdf_mem_malloc(sizeof(*linkspeed_req));
 	if (NULL == linkspeed_req) {
 		hdd_err("Request Buffer Alloc Fail");
-		return -ENOMEM;
+		return QDF_STATUS_E_NOMEM;
 	}
-
 	init_completion(&context.completion);
 	context.pAdapter = pAdapter;
 	context.magic = LINK_CONTEXT_MAGIC;
@@ -3778,18 +3746,15 @@ int wlan_hdd_get_linkspeed_for_peermac(hdd_adapter_t *pAdapter,
 	status = sme_get_link_speed(WLAN_HDD_GET_HAL_CTX(pAdapter),
 				    linkspeed_req,
 				    &context, hdd_get_link_speed_cb);
-	qdf_mem_free(linkspeed_req);
-	errno = qdf_status_to_os_return(status);
-	if (errno) {
+	if (QDF_STATUS_SUCCESS != status) {
 		hdd_err("Unable to retrieve statistics for link speed");
+		qdf_mem_free(linkspeed_req);
 	} else {
 		rc = wait_for_completion_timeout
 			(&context.completion,
 			 msecs_to_jiffies(WLAN_WAIT_TIME_STATS));
 		if (!rc) {
-			hdd_err("SME timed out while retrieving link speed: %d",
-				errno);
-			errno = -ETIMEDOUT;
+			hdd_err("SME timed out while retrieving link speed");
 		}
 	}
 
@@ -3809,8 +3774,7 @@ int wlan_hdd_get_linkspeed_for_peermac(hdd_adapter_t *pAdapter,
 	spin_lock(&hdd_context_lock);
 	context.magic = 0;
 	spin_unlock(&hdd_context_lock);
-
-	return errno;
+	return QDF_STATUS_SUCCESS;
 }
 
 /**
@@ -3829,11 +3793,11 @@ int wlan_hdd_get_link_speed(hdd_adapter_t *sta_adapter, uint32_t *link_speed)
 	hdd_context_t *hddctx = WLAN_HDD_GET_CTX(sta_adapter);
 	hdd_station_ctx_t *hdd_stactx =
 				WLAN_HDD_GET_STATION_CTX_PTR(sta_adapter);
-	int errno;
+	int ret;
 
-	errno = wlan_hdd_validate_context(hddctx);
-	if (errno)
-		return errno;
+	ret = wlan_hdd_validate_context(hddctx);
+	if (ret)
+		return ret;
 
 	/* Linkspeed is allowed only for P2P mode */
 	if (sta_adapter->device_mode != QDF_P2P_CLIENT_MODE) {
@@ -3847,20 +3811,20 @@ int wlan_hdd_get_link_speed(hdd_adapter_t *sta_adapter, uint32_t *link_speed)
 		/* we are not connected so we don't have a classAstats */
 		*link_speed = 0;
 	} else {
+		QDF_STATUS status;
 		struct qdf_mac_addr bssid;
 
 		qdf_copy_macaddr(&bssid, &hdd_stactx->conn_info.bssId);
 
-		errno = wlan_hdd_get_linkspeed_for_peermac(sta_adapter, bssid);
-		if (errno) {
-			hdd_err("Unable to retrieve SME linkspeed: %d", errno);
-			return errno;
+		status = wlan_hdd_get_linkspeed_for_peermac(sta_adapter, bssid);
+		if (!QDF_IS_STATUS_SUCCESS(status)) {
+			hdd_err("Unable to retrieve SME linkspeed");
+			return -EINVAL;
 		}
 		*link_speed = sta_adapter->ls_stats.estLinkSpeed;
 		/* linkspeed in units of 500 kbps */
 		*link_speed = (*link_speed) / 500;
 	}
-
 	return 0;
 }
 
@@ -4020,7 +3984,7 @@ uint8_t *wlan_hdd_get_vendor_oui_ie_ptr(uint8_t *oui, uint8_t oui_size,
 			       eid, elem_len, left);
 			return NULL;
 		}
-		if ((elem_id == eid) && (elem_len >= oui_size)) {
+		if (elem_id == eid) {
 			if (memcmp(&ptr[2], oui, oui_size) == 0)
 				return ptr;
 		}
@@ -7080,7 +7044,7 @@ static int __iw_set_mlme(struct net_device *dev,
 
 			hdd_notice("Disabling queues");
 			wlan_hdd_netif_queue_control(pAdapter,
-					WLAN_STOP_ALL_NETIF_QUEUE_N_CARRIER,
+					WLAN_NETIF_TX_DISABLE_N_CARRIER,
 					WLAN_CONTROL_PATH);
 
 		} else {
@@ -7649,19 +7613,6 @@ static int __iw_setint_getnone(struct net_device *dev,
 				     WNI_CFG_PS_DATA_INACTIVITY_TIMEOUT,
 				     set_value) == QDF_STATUS_E_FAILURE)) {
 			hdd_err("Failure: Could not pass on WNI_CFG_PS_DATA_INACTIVITY_TIMEOUT configuration info to SME");
-			ret = -EINVAL;
-		}
-		break;
-	case WE_SET_WOW_DATA_INACTIVITY_TO:
-		if (!hHal)
-			return -EINVAL;
-
-		if ((set_value < CFG_WOW_DATA_INACTIVITY_TIMEOUT_MIN) ||
-		    (set_value > CFG_WOW_DATA_INACTIVITY_TIMEOUT_MAX) ||
-		    (sme_cfg_set_int((WLAN_HDD_GET_CTX(pAdapter))->hHal,
-				     WNI_CFG_PS_WOW_DATA_INACTIVITY_TIMEOUT,
-				     set_value) == QDF_STATUS_E_FAILURE)) {
-			hdd_err("WNI_CFG_PS_WOW_DATA_INACTIVITY_TIMEOUT fail");
 			ret = -EINVAL;
 		}
 		break;
@@ -11518,17 +11469,6 @@ static int __iw_set_packet_filter_params(struct net_device *dev,
 		return -EINVAL;
 	}
 
-	if (adapter->device_mode != QDF_STA_MODE) {
-		hdd_err("Packet filter not supported for this mode :%d",
-			adapter->device_mode);
-		return -ENOTSUPP;
-	}
-
-	if (!hdd_conn_is_connected(WLAN_HDD_GET_STATION_CTX_PTR(adapter))) {
-		hdd_err("Packet filter not supported in disconnected state");
-		return -ENOTSUPP;
-	}
-
 	/* copy data using copy_from_user */
 	request = mem_alloc_copy_from_user_helper(priv_data.pointer,
 						   priv_data.length);
@@ -12551,11 +12491,6 @@ static const struct iw_priv_args we_private_args[] = {
 	 IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
 	 0,
 	 "inactivityTO"},
-
-	{WE_SET_WOW_DATA_INACTIVITY_TO,
-	 IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
-	 0,
-	 "wow_ito"},
 
 	{WE_SET_MAX_TX_POWER,
 	 IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
@@ -13631,11 +13566,6 @@ static const struct iw_priv_args we_private_args[] = {
 	 IW_PRIV_TYPE_INT | IW_PRIV_SIZE_FIXED | 1,
 	 "hostroamdelay"}
 	,
-
-	{WLAN_PRIV_SET_FTIES,
-	 IW_PRIV_TYPE_CHAR | MAX_FTIE_SIZE,
-	 0,
-	 "set_ft_ies"},
 };
 
 const struct iw_handler_def we_handler_def = {
