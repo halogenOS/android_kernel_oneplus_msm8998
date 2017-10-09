@@ -19,5 +19,8 @@ ccflags-y += -O1 -fthread-jumps \
           -ftree-switch-conversion -ftree-tail-merge \
           -ftree-pre \
           -ftree-vrp \
-          -mtune=cortex-a73 \
           -march=armv8-a+simd
+ifneq ($(GCC_VERSION), 0409)
+ccflags-y += \
+          -mtune=cortex-a73
+endif
