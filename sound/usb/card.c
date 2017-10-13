@@ -282,6 +282,7 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 	struct usb_host_interface *host_iface;
 	struct usb_interface_descriptor *altsd;
 	struct usb_interface *usb_iface;
+	void *control_header;
 	int i, protocol;
 	int rest_bytes;
 
@@ -299,13 +300,16 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		return -EINVAL;
 	}
 
+	control_header = snd_usb_find_csint_desc(host_iface->extra,
+						 host_iface->extralen,
+						 NULL, UAC_HEADER);
 	altsd = get_iface_desc(host_iface);
 	protocol = altsd->bInterfaceProtocol;
 
-	/*
-	 * UAC 1.0 devices use AC HEADER Desc for linking AS interfaces;
-	 * UAC 2.0 and 3.0 devices use IAD for linking AS interfaces
-	 */
+	if (!control_header) {
+		dev_err(&dev->dev, "cannot find UAC_HEADER\n");
+		return -EINVAL;
+	}
 
 	rest_bytes = (void *)(host_iface->extra + host_iface->extralen) -
 		control_header;
@@ -324,17 +328,7 @@ static int snd_usb_create_streams(struct snd_usb_audio *chip, int ctrlif)
 		/* fall through */
 
 	case UAC_VERSION_1: {
-		void *control_header;
-		struct uac1_ac_header_descriptor *h1;
-
-		control_header = snd_usb_find_csint_desc(host_iface->extra,
-					host_iface->extralen, NULL, UAC_HEADER);
-		if (!control_header) {
-			dev_err(&dev->dev, "cannot find UAC_HEADER\n");
-			return -EINVAL;
-		}
-
-		h1 = control_header;
+		struct uac1_ac_header_descriptor *h1 = control_header;
 
 		if (rest_bytes < sizeof(*h1)) {
 			dev_err(&dev->dev, "too short v1 buffer descriptor\n");
