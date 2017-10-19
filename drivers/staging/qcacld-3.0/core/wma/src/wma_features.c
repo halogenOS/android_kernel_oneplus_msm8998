@@ -5302,7 +5302,7 @@ QDF_STATUS wma_enable_d0wow_in_fw(WMA_HANDLE handle)
 			wmi_get_host_credits(wma->wmi_handle),
 			wmi_get_pending_cmds(wma->wmi_handle));
 		if (!cds_is_driver_recovering())
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_SUSPEND_TIMEOUT);
 		else
 			WMA_LOGE("%s: LOGP is in progress, ignore!", __func__);
 
@@ -5321,7 +5321,7 @@ QDF_STATUS wma_enable_d0wow_in_fw(WMA_HANDLE handle)
 			 __func__, host_credits, wmi_pending_cmds);
 		htc_dump_counter_info(wma->htc_handle);
 		if (!cds_is_driver_recovering())
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_SUSPEND_TIMEOUT);
 		else
 			WMA_LOGE("%s: SSR in progress, ignore no credit issue",
 				 __func__);
@@ -5403,7 +5403,7 @@ QDF_STATUS wma_enable_wow_in_fw(WMA_HANDLE handle, uint32_t wow_flags)
 			 wmi_get_pending_cmds(wma->wmi_handle));
 		wmi_set_target_suspend(wma->wmi_handle, false);
 		if (!cds_is_driver_recovering()) {
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_SUSPEND_TIMEOUT);
 		} else {
 			WMA_LOGE("%s: LOGP is in progress, ignore!", __func__);
 		}
@@ -5425,7 +5425,7 @@ QDF_STATUS wma_enable_wow_in_fw(WMA_HANDLE handle, uint32_t wow_flags)
 			 __func__, host_credits, wmi_pending_cmds);
 		htc_dump_counter_info(wma->htc_handle);
 		if (!cds_is_driver_recovering())
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_SUSPEND_TIMEOUT);
 		else
 			WMA_LOGE("%s: SSR in progress, ignore no credit issue",
 				 __func__);
@@ -6169,7 +6169,7 @@ static QDF_STATUS wma_send_host_wakeup_ind_to_fw(tp_wma_handle wma)
 			 wmi_get_host_credits(wma->wmi_handle));
 		if (!cds_is_driver_recovering()) {
 			wmi_tag_crash_inject(wma->wmi_handle, true);
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_RESUME_TIMEOUT);
 		} else {
 			WMA_LOGE("%s: SSR in progress, ignore resume timeout",
 				 __func__);
@@ -6225,7 +6225,7 @@ QDF_STATUS wma_disable_d0wow_in_fw(WMA_HANDLE handle)
 			wmi_get_host_credits(wma->wmi_handle));
 
 		if (!cds_is_driver_recovering())
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_RESUME_TIMEOUT);
 		else
 			WMA_LOGE("%s: LOGP is in progress, ignore!", __func__);
 
@@ -8284,7 +8284,7 @@ static inline void wma_suspend_target_timeout(bool is_self_recovery_enabled)
 		WMA_LOGE("%s: Module in bad state; Ignoring suspend timeout",
 			 __func__);
 	else
-		cds_trigger_recovery();
+		cds_trigger_recovery(CDS_SUSPEND_TIMEOUT);
 }
 
 /**
@@ -8455,7 +8455,7 @@ QDF_STATUS wma_resume_target(WMA_HANDLE handle)
 			wmi_get_pending_cmds(wma->wmi_handle),
 			wmi_get_host_credits(wma->wmi_handle));
 		if (!cds_is_driver_recovering()) {
-			cds_trigger_recovery();
+			cds_trigger_recovery(CDS_RESUME_TIMEOUT);
 		} else {
 			WMA_LOGE("%s: SSR in progress, ignore resume timeout",
 				__func__);
@@ -9604,6 +9604,23 @@ QDF_STATUS wma_set_bpf_instructions(tp_wma_handle wma,
 		return QDF_STATUS_E_NOSUPPORT;
 	}
 
+	if (!bpf_set_offload) {
+		WMA_LOGE("%s: Invalid BPF instruction request", __func__);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (bpf_set_offload->session_id >= wma->max_bssid) {
+		WMA_LOGE(FL("Invalid vdev_id: %d"),
+			bpf_set_offload->session_id);
+		return QDF_STATUS_E_INVAL;
+	}
+
+	if (!wma->interfaces[bpf_set_offload->session_id].vdev_up) {
+		WMA_LOGE("vdev %d is not up skipping BPF offload",
+			bpf_set_offload->session_id);
+		return QDF_STATUS_E_INVAL;
+	}
+
 	if (bpf_set_offload->total_length) {
 		len_aligned = roundup(bpf_set_offload->current_length,
 					sizeof(A_UINT32));
@@ -9645,6 +9662,8 @@ QDF_STATUS wma_set_bpf_instructions(tp_wma_handle wma,
 		wmi_buf_free(wmi_buf);
 		return QDF_STATUS_E_FAILURE;
 	}
+	WMA_LOGD(FL("BPF offload enabled in fw"));
+
 	return QDF_STATUS_SUCCESS;
 }
 
