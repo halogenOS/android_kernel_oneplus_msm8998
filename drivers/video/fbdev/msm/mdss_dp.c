@@ -421,6 +421,22 @@ static int mdss_dp_clk_init(struct mdss_dp_drv_pdata *dp_drv,
 				__func__);
 			dp_drv->pixel_parent = NULL;
 		}
+
+		dp_drv->pixel_clk_two_div = devm_clk_get(dev,
+			"pixel_clk_two_div");
+		if (IS_ERR(dp_drv->pixel_clk_two_div)) {
+			pr_debug("%s: Unable to get DP pixel two div clk\n",
+				__func__);
+			dp_drv->pixel_clk_two_div = NULL;
+		}
+
+		dp_drv->pixel_clk_four_div = devm_clk_get(dev,
+			"pixel_clk_four_div");
+		if (IS_ERR(dp_drv->pixel_clk_four_div)) {
+			pr_debug("%s: Unable to get DP pixel four div clk\n",
+				__func__);
+			dp_drv->pixel_clk_four_div = NULL;
+		}
 	} else {
 		if (dp_drv->pixel_parent)
 			devm_clk_put(dev, dp_drv->pixel_parent);
@@ -1417,6 +1433,16 @@ static int mdss_dp_enable_mainlink_clocks(struct mdss_dp_drv_pdata *dp)
 		return ret;
 	}
 
+	if (dp->pixel_parent && dp->pixel_clk_two_div &&
+		dp->pixel_clk_four_div) {
+		if (dp->link_rate == DP_LINK_RATE_540)
+			clk_set_parent(dp->pixel_parent,
+				dp->pixel_clk_four_div);
+		else
+			clk_set_parent(dp->pixel_parent,
+				dp->pixel_clk_two_div);
+	}
+
 	mdss_dp_set_clock_rate(dp, "ctrl_link_clk",
 		(dp->link_rate * DP_LINK_RATE_MULTIPLIER) / DP_KHZ_TO_HZ);
 
@@ -2116,6 +2142,12 @@ static int mdss_dp_notify_clients(struct mdss_dp_drv_pdata *dp,
 		if (dp->hpd_notification_status == NOTIFY_UNKNOWN)
 			goto invalid_request;
 		if (dp->hpd_notification_status == NOTIFY_DISCONNECT_IRQ_HPD) {
+			/*
+			 * Just in case if NOTIFY_DISCONNECT_IRQ_HPD is timedout
+			 */
+			if (dp->power_on)
+				mdss_dp_state_ctrl(&dp->ctrl_io, ST_PUSH_IDLE);
+
 			/*
 			 * user modules already turned off. Need to explicitly
 			 * turn off DP core here.
@@ -2996,6 +3028,12 @@ static void mdss_dp_mainlink_push_idle(struct mdss_panel_data *pdata)
 
 	/* wait until link training is completed */
 	mutex_lock(&dp_drv->train_mutex);
+
+	if (!dp_drv->power_on) {
+		pr_err("DP Controller not powered on\n");
+		mutex_unlock(&dp_drv->train_mutex);
+		return;
+	}
 
 	reinit_completion(&dp_drv->idle_comp);
 	mdss_dp_state_ctrl(&dp_drv->ctrl_io, ST_PUSH_IDLE);
