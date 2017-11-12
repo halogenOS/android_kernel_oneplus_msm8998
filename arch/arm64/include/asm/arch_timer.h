@@ -38,19 +38,19 @@ void arch_timer_reg_write_cp15(int access, enum arch_timer_reg reg, u32 val)
 	if (access == ARCH_TIMER_PHYS_ACCESS) {
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			asm volatile("msr cntp_ctl_el0,  %0" : : "r" (val));
+			asm volatile("msr cntp_ctl_el0,  %w0" : : "r" (val));
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			asm volatile("msr cntp_tval_el0, %0" : : "r" (val));
+			asm volatile("msr cntp_tval_el0, %w0" : : "r" (val));
 			break;
 		}
 	} else if (access == ARCH_TIMER_VIRT_ACCESS) {
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			asm volatile("msr cntv_ctl_el0,  %0" : : "r" (val));
+			asm volatile("msr cntv_ctl_el0,  %w0" : : "r" (val));
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			asm volatile("msr cntv_tval_el0, %0" : : "r" (val));
+			asm volatile("msr cntv_tval_el0, %w0" : : "r" (val));
 			break;
 		}
 	}
@@ -66,19 +66,19 @@ u32 arch_timer_reg_read_cp15(int access, enum arch_timer_reg reg)
 	if (access == ARCH_TIMER_PHYS_ACCESS) {
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			asm volatile("mrs %0,  cntp_ctl_el0" : "=r" (val));
+			asm volatile("mrs %w0,  cntp_ctl_el0" : "=r" (val));
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			asm volatile("mrs %0, cntp_tval_el0" : "=r" (val));
+			asm volatile("mrs %w0, cntp_tval_el0" : "=r" (val));
 			break;
 		}
 	} else if (access == ARCH_TIMER_VIRT_ACCESS) {
 		switch (reg) {
 		case ARCH_TIMER_REG_CTRL:
-			asm volatile("mrs %0,  cntv_ctl_el0" : "=r" (val));
+			asm volatile("mrs %w0,  cntv_ctl_el0" : "=r" (val));
 			break;
 		case ARCH_TIMER_REG_TVAL:
-			asm volatile("mrs %0, cntv_tval_el0" : "=r" (val));
+			asm volatile("mrs %w0, cntv_tval_el0" : "=r" (val));
 			break;
 		}
 	}
@@ -89,20 +89,20 @@ u32 arch_timer_reg_read_cp15(int access, enum arch_timer_reg reg)
 static inline u32 arch_timer_get_cntfrq(void)
 {
 	u32 val;
-	asm volatile("mrs %0,   cntfrq_el0" : "=r" (val));
+	asm volatile("mrs %w0,   cntfrq_el0" : "=r" (val));
 	return val;
 }
 
 static inline u32 arch_timer_get_cntkctl(void)
 {
 	u32 cntkctl;
-	asm volatile("mrs	%0, cntkctl_el1" : "=r" (cntkctl));
+	asm volatile("mrs	%w0, cntkctl_el1" : "=r" (cntkctl));
 	return cntkctl;
 }
 
 static inline void arch_timer_set_cntkctl(u32 cntkctl)
 {
-	asm volatile("msr	cntkctl_el1, %0" : : "r" (cntkctl));
+	asm volatile("msr	cntkctl_el1, %w0" : : "r" (cntkctl));
 }
 
 static inline u64 arch_counter_get_cntpct(void)
@@ -122,10 +122,10 @@ static inline u64 arch_counter_get_cntvct(void)
 #if IS_ENABLED(CONFIG_MSM_TIMER_LEAP)
 #define L32_BITS	0x00000000FFFFFFFF
 	do {
-		asm volatile("mrs %0, cntvct_el0" : "=r" (cval));
+		asm volatile("mrs %w0, cntvct_el0" : "=r" (cval));
 	} while ((cval & L32_BITS) == L32_BITS);
 #else
-	asm volatile("mrs %0, cntvct_el0" : "=r" (cval));
+	asm volatile("mrs %w0, cntvct_el0" : "=r" (cval));
 #endif
 
 	return cval;

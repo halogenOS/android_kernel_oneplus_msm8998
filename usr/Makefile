@@ -24,10 +24,12 @@ suffix_$(CONFIG_RD_LZ4)    = .lz4
 # Gzip
 suffix_$(CONFIG_RD_GZIP)   = .gz
 
-AFLAGS_initramfs_data.o += -DINITRAMFS_IMAGE="usr/initramfs_data.cpio$(suffix_y)"
+AFLAGS_initramfs_data.o += -DINITRAMFS_IMAGE="usr/initramfs_data.cpio$(suffix_y)" -target aarch64-linux-android
 
 # Generate builtin.o based on initramfs_data.o
 obj-$(CONFIG_BLK_DEV_INITRD) := initramfs_data.o
+cflags-$(CONFIG_BLK_DEV_INITRD) ?=
+cflags-$(CONFIG_BLK_DEV_INITRD) += -target aarch64-linux-android
 
 # initramfs_data.o contains the compressed initramfs_data.cpio image.
 # The image is included using .incbin, a dependency which is not

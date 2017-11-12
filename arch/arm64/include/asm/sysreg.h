@@ -249,10 +249,10 @@ static inline void config_sctlr_el1(u32 clear, u32 set)
 {
 	u32 val;
 
-	asm volatile("mrs %0, sctlr_el1" : "=r" (val));
+	asm volatile("mrs %w0, sctlr_el1" : "=r" (val));
 	val &= ~clear;
 	val |= set;
-	asm volatile("msr sctlr_el1, %0" : : "r" (val));
+	asm volatile("msr sctlr_el1, %w0" : : "r" (val));
 }
 
 /*
@@ -261,13 +261,13 @@ static inline void config_sctlr_el1(u32 clear, u32 set)
  */
 #define read_sysreg(r) ({					\
 	u64 __val;						\
-	asm volatile("mrs %0, " __stringify(r) : "=r" (__val));	\
+	asm volatile("mrs %w0, " __stringify(r) : "=r" (__val));	\
 	__val;							\
 })
 
 #define write_sysreg(v, r) do {					\
 	u64 __val = (u64)v;					\
-	asm volatile("msr " __stringify(r) ", %0"		\
+	asm volatile("msr " __stringify(r) ", %w0"		\
 		     : : "r" (__val));				\
 } while (0)
 

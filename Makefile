@@ -343,9 +343,12 @@ export KBUILD_CHECKSRC KBUILD_SRC KBUILD_EXTMOD
 scripts/Kbuild.include: ;
 include scripts/Kbuild.include
 
+CLANG_CFLAGS := -target aarch64-linux-android -no-integrated-as -D__clang__
+#CLANG_LDFLAGS := -target aarch64-linux-android
+
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
-LD		= $(TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/llvm-link
+LD		= $(CROSS_COMPILE)ld
 CC		= $(TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/clang
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
@@ -361,13 +364,11 @@ PERL		= perl
 PYTHON		= python
 CHECK		= sparse
 
-CLANG_CFLAGS := -target aarch64-linux-android -no-integrated-as -D__clang__
-
 CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 		  -Wbitwise -Wno-return-void $(CF)
 CFLAGS_MODULE   = $(CLANG_CFLAGS)
 AFLAGS_MODULE   =
-LDFLAGS_MODULE  = --strip-debug
+LDFLAGS_MODULE  = --strip-debug $(CLANG_LDFLAGS)
 CFLAGS_KERNEL	= $(CLANG_CFLAGS)
 AFLAGS_KERNEL	=
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage -fno-tree-loop-im
@@ -406,7 +407,7 @@ KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__ $(call cc-option,-fno-PIE)
 KBUILD_AFLAGS_MODULE  := -DMODULE
 KBUILD_CFLAGS_MODULE  := -DMODULE
-KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds
+KBUILD_LDFLAGS_MODULE := -T $(srctree)/scripts/module-common.lds $(CLANG_LDFLAGS)
 
 # Read KERNELRELEASE from include/config/kernel.release (if it exists)
 KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
@@ -821,7 +822,7 @@ KBUILD_CFLAGS   += $(ARCH_CFLAGS)   $(KCFLAGS)
 LDFLAGS_BUILD_ID = $(patsubst -Wl$(comma)%,%,\
 			      $(call cc-ldoption, -Wl$(comma)--build-id,))
 KBUILD_LDFLAGS_MODULE += $(LDFLAGS_BUILD_ID)
-LDFLAGS_vmlinux += $(LDFLAGS_BUILD_ID)
+LDFLAGS_vmlinux += $(LDFLAGS_BUILD_ID) $(CLANG_LDFLAGS)
 
 ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
 LDFLAGS_vmlinux	+= $(call ld-option, -X,)
