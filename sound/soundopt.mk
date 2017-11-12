@@ -1,26 +1,3 @@
 
 ccflags-y ?=
-ccflags-y += -O1 -fthread-jumps \
-          -falign-functions -falign-jumps \
-          -falign-loops -falign-labels \
-          -fcse-follow-jumps -fcse-skip-blocks \
-          -fexpensive-optimizations \
-          -fgcse -fgcse-lm \
-          -fhoist-adjacent-loads \
-          -finline-small-functions \
-          -findirect-inlining \
-          -fipa-cp \
-          -fipa-sra \
-          -fisolate-erroneous-paths-dereference \
-          -foptimize-sibling-calls \
-          -foptimize-strlen \
-          -fpeephole2 \
-          -frerun-cse-after-loop \
-          -ftree-switch-conversion -ftree-tail-merge \
-          -ftree-pre \
-          -ftree-vrp \
-          -march=armv8-a+simd
-ifneq ($(GCC_VERSION), 0409)
-ccflags-y += \
-          -mtune=cortex-a73
-endif
+ccflags-y += -O2 -march=armv8-a+simd
