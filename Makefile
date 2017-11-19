@@ -349,7 +349,9 @@ LD		= $(CROSS_COMPILE)ld
 ifneq ($(TOP),)
 CC		= $(TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/clang
 else
-CC		= $(realpath ../../../prebuilts/clang/host/linux-x86/clang-4053586/bin/clang)
+ifneq ($(ANDROID_BUILD_TOP),)
+CC		= $(ANDROID_BUILD_TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/clang
+endif
 endif
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
