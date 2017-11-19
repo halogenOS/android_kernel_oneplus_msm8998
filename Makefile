@@ -346,7 +346,11 @@ include scripts/Kbuild.include
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
+ifneq ($(TOP),)
 CC		= $(TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/clang
+else
+CC		= $(realpath ../../../prebuilts/clang/host/linux-x86/clang-4053586/bin/clang)
+endif
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
