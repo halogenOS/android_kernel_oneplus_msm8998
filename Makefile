@@ -346,13 +346,7 @@ include scripts/Kbuild.include
 # Make variables (CC, etc...)
 AS		= $(CROSS_COMPILE)as
 LD		= $(CROSS_COMPILE)ld
-ifneq ($(TOP),)
-CC		= $(TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/clang
-else
-ifneq ($(ANDROID_BUILD_TOP),)
-CC		= $(ANDROID_BUILD_TOP)/prebuilts/clang/host/linux-x86/clang-4053586/bin/clang
-endif
-endif
+CC		= $(CROSS_COMPILE)gcc
 CPP		= $(CC) -E
 AR		= $(CROSS_COMPILE)ar
 NM		= $(CROSS_COMPILE)nm
@@ -376,10 +370,13 @@ CFLAGS_KERNEL	=
 AFLAGS_KERNEL	=
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage -fno-tree-loop-im
 
+
 ifeq ($(cc-name),clang)
-CLANG_TRIPLE	?= aarch64-linux-gnu
-CLANG_TARGET	:= -target $(CLANG_TRIPLE)
-#GCC_TOOLCHAIN	:= $(realpath $(dir $(shell which $(LD)))/..)
+ifneq ($(CROSS_COMPILE),)
+CLANG_TRIPLE	?= $(CROSS_COMPILE)
+CLANG_TARGET	:= -target $(notdir $(CLANG_TRIPLE:%-=%))
+GCC_TOOLCHAIN	:= $(realpath $(dir $(shell which $(LD)))/..)
+endif
 ifneq ($(GCC_TOOLCHAIN),)
 CLANG_GCC_TC	:= -gcc-toolchain $(GCC_TOOLCHAIN)
 endif
