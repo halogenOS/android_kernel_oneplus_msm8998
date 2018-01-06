@@ -2782,7 +2782,54 @@ static int mdss_panel_parse_dt(struct device_node *np,
 		"qcom,mdss-dsi-border-color", &tmp);
 	pinfo->lcdc.border_clr = (!rc ? tmp : 0);
 	data = of_get_property(np, "qcom,mdss-dsi-panel-orientation", NULL);
-	if (data) {
+
+	// The dtsi does not contain the orientation so we need to try to
+	// get it from the kernel command line. Otherwise it does nothing.
+	if (!data) {
+		// Get a string which starts with the option we want
+		char* svd_cmdline_orientation_tmp = strnstr(saved_command_line,
+			"mdss-dsi-panel-orientation=", strlen(saved_command_line));
+
+		if (svd_cmdline_orientation_tmp) {
+			// Length for later use
+			size_t svd_cmdline_orientation_tmp_len =
+					strlen(svd_cmdline_orientation_tmp) + 1;
+			// This will contain everything after and including the first
+			// space in the string above
+			char* svd_cmdline_ornt_end;
+			// This string starts with a = followed by the value that we want
+			char* svd_cmdline_ornt_val_start;
+			// We need to copy the string we got above to modify it without
+			// affecting the kernel command line
+			char svd_cmdline_orientation[svd_cmdline_orientation_tmp_len];
+			memcpy(svd_cmdline_orientation, svd_cmdline_orientation_tmp,
+					svd_cmdline_orientation_tmp_len);
+			svd_cmdline_ornt_end = strchr(svd_cmdline_orientation, ' ');
+
+			if (svd_cmdline_ornt_end) {
+				// Put a null terminator where the space is so that we
+				// don't have all the other options that follow
+				svd_cmdline_orientation[(int)(svd_cmdline_ornt_end
+									- svd_cmdline_orientation)] = '\0';
+			}
+
+			// Now get the string that starts with = followed by the value
+			svd_cmdline_ornt_val_start = strchr(svd_cmdline_orientation, '=');
+			// Of course make sure it actually is sane
+			if (svd_cmdline_ornt_val_start) {
+				// Because it starts with = orientation is everything after it
+				char* orientation = &svd_cmdline_ornt_val_start[1];
+				pr_debug("Found orientation %s in cmdline\n", orientation);
+				// Now just compare the string and set the orientation
+				if (!strncmp(orientation, "180", 3))
+					pinfo->panel_orientation = MDP_ROT_180;
+				else if (!strncmp(orientation, "hflip", 5))
+					pinfo->panel_orientation = MDP_FLIP_LR;
+				else if (!strncmp(orientation, "vflip", 5))
+					pinfo->panel_orientation = MDP_FLIP_UD;
+			}
+		}
+	} else {
 		pr_debug("panel orientation is %s\n", data);
 		if (!strcmp(data, "180"))
 			pinfo->panel_orientation = MDP_ROT_180;
