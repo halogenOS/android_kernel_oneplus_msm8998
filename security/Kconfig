@@ -182,6 +182,29 @@ config HARDENED_USERCOPY_PAGESPAN
 	  been removed. This config is intended to be used only while
 	  trying to find such users.
 
+config FORTIFY_SOURCE
+	bool "Harden common str/mem functions against buffer overflows"
+	depends on ARCH_HAS_FORTIFY_SOURCE
+	help
+	  Detect overflows of buffers in common string and memory functions
+	  where the compiler can determine and validate the buffer sizes.
+
+config PAGE_SANITIZE
+	bool "Sanitize pages"
+	depends on !HIBERNATION
+	default y
+	help
+	  Zero fill page allocations on free, reducing the lifetime of
+	  sensitive data and helping to mitigate use-after-free bugs.
+
+config PAGE_SANITIZE_VERIFY
+	bool "Verify sanitized pages"
+	depends on PAGE_SANITIZE
+	default y
+	help
+	  Verify that newly allocated pages are zeroed to detect
+	  write-after-free bugs.
+
 source security/selinux/Kconfig
 source security/smack/Kconfig
 source security/tomoyo/Kconfig
