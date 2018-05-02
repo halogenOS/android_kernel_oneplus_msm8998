@@ -22,3 +22,5 @@
 	__attribute__((__section__(".text..ftrace")))
 #endif
 #endif
+
+#define __noscs		__attribute__((no_sanitize("shadow-call-stack")))
