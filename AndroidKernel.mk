@@ -129,6 +129,9 @@ endif
 
 $(KERNEL_OUT):
 	mkdir -p $(KERNEL_OUT)
+	$(hide) echo "Fetching latest Wireguard..."
+	$(hide) cd $(TARGET_KERNEL_SOURCE) && \
+			scripts/fetch-latest-wireguard.sh
 
 $(KERNEL_CONFIG): $(KERNEL_OUT)
 	$(MAKE) -C $(TARGET_KERNEL_SOURCE) O=$(BUILD_ROOT_LOC)$(KERNEL_OUT) $(KERNEL_MAKE_ENV) ARCH=$(KERNEL_ARCH) CROSS_COMPILE=$(KERNEL_CROSS_COMPILE) $(KERNEL_DEFCONFIG)
