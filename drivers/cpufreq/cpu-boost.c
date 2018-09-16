@@ -17,11 +17,13 @@
 #include <linux/init.h>
 #include <linux/cpufreq.h>
 #include <linux/cpu.h>
+#include <linux/kthread.h>
 #include <linux/sched.h>
 #include <linux/moduleparam.h>
 #include <linux/slab.h>
 #include <linux/input.h>
 #include <linux/time.h>
+#include <linux/cpu_boost.h>
 #ifdef CONFIG_STATE_NOTIFIER
 #include <linux/state_notifier.h>
 #endif
@@ -35,9 +37,6 @@ struct cpu_sync {
 };
 
 static DEFINE_PER_CPU(struct cpu_sync, sync_info);
-static struct workqueue_struct *cpu_boost_wq;
-
-static struct work_struct input_boost_work;
 
 static unsigned int input_boost_enabled = 1;
 module_param(input_boost_enabled, uint, 0644);
@@ -50,13 +49,12 @@ module_param(sched_boost_on_input, bool, 0644);
 
 static bool sched_boost_active;
 
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-static int dynamic_stune_boost;
-module_param(dynamic_stune_boost, uint, 0644);
-#endif /* CONFIG_DYNAMIC_STUNE_BOOST */
-
 static struct delayed_work input_boost_rem;
 static u64 last_input_time;
+
+static struct kthread_work input_boost_work;
+static struct kthread_worker cpu_boost_worker;
+static struct task_struct *cpu_boost_worker_thread;
 
 static int set_input_boost_freq(const char *buf, const struct kernel_param *kp)
 {
@@ -140,7 +138,17 @@ static int boost_adjust_notify(struct notifier_block *nb, unsigned long val,
 		if (!ib_min)
 			break;
 
-		ib_min = min(ib_min, policy->max);
+		ib_min = min((s->input_boost_min == UINT_MAX ?
+				policy->max : s->input_boost_min), policy->max);
+
+		/*
+		 * If we're not resetting the boost and if the new boosted freq
+		 * is below or equal to the current min freq, bail early
+		 */
+		if (ib_min) {
+			if (ib_min <= policy->min)
+				break;
+		}
 
 		pr_debug("CPU%u policy min before boost: %u kHz\n",
 			 cpu, policy->min);
@@ -158,6 +166,7 @@ static int boost_adjust_notify(struct notifier_block *nb, unsigned long val,
 
 static struct notifier_block boost_adjust_nb = {
 	.notifier_call = boost_adjust_notify,
+	.priority = INT_MAX-2,
 };
 
 static void update_policy_online(void)
@@ -185,11 +194,6 @@ static void do_input_boost_rem(struct work_struct *work)
 		i_sync_info->input_boost_min = 0;
 	}
 
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-	/* Reset dynamic stune boost value to the default value */
-	reset_stune_boost("top-app");
-#endif /* CONFIG_DYNAMIC_STUNE_BOOST */
-
 	/* Update policies for all online CPUs */
 	update_policy_online();
 
@@ -201,7 +205,29 @@ static void do_input_boost_rem(struct work_struct *work)
 	}
 }
 
-static void do_input_boost(struct work_struct *work)
+void do_input_boost_max()
+{
+	unsigned int i;
+	struct cpu_sync *i_sync_info;
+
+	if (!cpu_boost_worker_thread)
+		return;
+
+	cancel_delayed_work_sync(&input_boost_rem);
+
+	for_each_possible_cpu(i) {
+		i_sync_info = &per_cpu(sync_info, i);
+		i_sync_info->input_boost_min = UINT_MAX;
+	}
+
+	update_policy_online();
+
+	queue_delayed_work(system_power_efficient_wq,
+		&input_boost_rem, msecs_to_jiffies(
+			input_boost_ms < 1500 ? 1500 : input_boost_ms));
+}
+
+static void do_input_boost(struct kthread_work *work)
 {
 	unsigned int i, ret;
 	struct cpu_sync *i_sync_info;
@@ -245,13 +271,8 @@ static void do_input_boost(struct work_struct *work)
 			sched_boost_active = true;
 	}
 
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-	/* Set dynamic stune boost value */
-	do_stune_boost("top-app", dynamic_stune_boost);
-#endif /* CONFIG_DYNAMIC_STUNE_BOOST */
-
-	queue_delayed_work(cpu_boost_wq, &input_boost_rem,
-					msecs_to_jiffies(input_boost_ms));
+	queue_delayed_work(system_power_efficient_wq,
+		&input_boost_rem, msecs_to_jiffies(input_boost_ms));
 }
 
 static void cpuboost_input_event(struct input_handle *handle,
@@ -271,10 +292,10 @@ static void cpuboost_input_event(struct input_handle *handle,
 	if ((now - last_input_time) < (input_boost_ms * USEC_PER_MSEC))
 		return;
 
-	if (work_pending(&input_boost_work))
+	if (queuing_blocked(&cpu_boost_worker, &input_boost_work))
 		return;
 
-	queue_work(cpu_boost_wq, &input_boost_work);
+	queue_kthread_work(&cpu_boost_worker, &input_boost_work);
 	last_input_time = ktime_to_us(ktime_get());
 }
 
@@ -310,11 +331,6 @@ err2:
 
 static void cpuboost_input_disconnect(struct input_handle *handle)
 {
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-	/* Reset dynamic stune boost value to the default value */
-	reset_stune_boost("top-app");
-#endif /* CONFIG_DYNAMIC_STUNE_BOOST */
-
 	input_close_device(handle);
 	input_unregister_handle(handle);
 	kfree(handle);
@@ -358,12 +374,17 @@ static int cpu_boost_init(void)
 {
 	int cpu, ret;
 	struct cpu_sync *s;
+	struct sched_param param = { .sched_priority = MAX_RT_PRIO - 2 };
 
-	cpu_boost_wq = alloc_workqueue("cpuboost_wq", WQ_HIGHPRI, 0);
-	if (!cpu_boost_wq)
+	init_kthread_worker(&cpu_boost_worker);
+	cpu_boost_worker_thread = kthread_run(kthread_worker_fn,
+		&cpu_boost_worker, "cpu_boost_worker_thread");
+	if (IS_ERR(cpu_boost_worker_thread))
 		return -EFAULT;
 
-	INIT_WORK(&input_boost_work, do_input_boost);
+	sched_setscheduler(cpu_boost_worker_thread, SCHED_FIFO, &param);
+
+	init_kthread_work(&input_boost_work, do_input_boost);
 	INIT_DELAYED_WORK(&input_boost_rem, do_input_boost_rem);
 
 	for_each_possible_cpu(cpu) {

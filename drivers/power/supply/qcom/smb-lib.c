@@ -40,6 +40,10 @@
 #include <linux/fb.h>
 #endif /*CONFIG_FB*/
 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/fastchg.h>
+#endif
+
 #define SOC_INVALID                   0x7E
 #define SOC_DATA_REG_0                0x88D
 #define HEARTBEAT_INTERVAL_MS         6000
@@ -628,12 +632,13 @@ static const struct apsd_result *smblib_update_usb_type(struct smb_charger *chg)
 		chg->real_charger_type = apsd_result->pst;
 	}
 
-/*Yangfb@bsp add to fix fastcharge test not pass*/
-	if (chg->dash_on)
-		chg->real_charger_type = POWER_SUPPLY_TYPE_DASH;
-	else
+	if (chg->dash_on) {
+		chg->real_charger_type = POWER_SUPPLY_TYPE_USB_DCP;
+		chg->usb_psy_desc.type = POWER_SUPPLY_TYPE_USB_DCP;
+	} else {
 		chg->real_charger_type = apsd_result->pst;
-	chg->usb_psy_desc.type = apsd_result->pst;
+		chg->usb_psy_desc.type = apsd_result->pst;
+	}
 	smblib_dbg(chg, PR_MISC, "APSD=%s PD=%d\n",
 					apsd_result->name, chg->pd_active);
 	return apsd_result;
@@ -883,6 +888,13 @@ static int set_sdp_current(struct smb_charger *chg, int icl_ua)
 	int rc;
 	u8 icl_options;
 	const struct apsd_result *apsd_result = smblib_get_apsd_result(chg);
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	if (force_fast_charge > 0 && icl_ua == USBIN_500MA)
+	{
+		icl_ua = USBIN_900MA;
+	}
+#endif
 
 	/* power source is SDP */
 	switch (icl_ua) {
@@ -5340,7 +5352,7 @@ static int set_dash_charger_present(int status)
 		g_chg->dash_present = status && charger_present;
 		if (g_chg->dash_present && !pre_dash_present) {
 			pr_err("set dash online\n");
-			g_chg->usb_psy_desc.type = POWER_SUPPLY_TYPE_DASH;
+			g_chg->usb_psy_desc.type = POWER_SUPPLY_TYPE_USB_DCP;
 			vote(g_chg->usb_icl_votable, PD_VOTER, true,
 					DEFAULT_WALL_CHG_MA * 1000);
 #ifdef CONFIG_CUSTOM_ROM
