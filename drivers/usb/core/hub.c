@@ -4291,7 +4291,7 @@ static void hub_set_initial_usb2_lpm_policy(struct usb_device *udev)
 	if (hub)
 		connect_type = hub->ports[udev->portnum - 1]->connect_type;
 
-	if(udev->bos == NULL)
+	if (udev->bos == NULL)
 		return;
 
 	if ((udev->bos->ext_cap->bmAttributes & cpu_to_le32(USB_BESL_SUPPORT)) ||
