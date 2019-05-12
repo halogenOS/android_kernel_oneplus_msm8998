@@ -847,9 +847,9 @@ static int wsm_startup_indication(struct cw1200_common *priv,
 
 	/* Disable unsupported frequency bands */
 	if (!(priv->wsm_caps.fw_cap & 0x1))
-		priv->hw->wiphy->bands[IEEE80211_BAND_2GHZ] = NULL;
+		priv->hw->wiphy->bands[NL80211_BAND_2GHZ] = NULL;
 	if (!(priv->wsm_caps.fw_cap & 0x2))
-		priv->hw->wiphy->bands[IEEE80211_BAND_5GHZ] = NULL;
+		priv->hw->wiphy->bands[NL80211_BAND_5GHZ] = NULL;
 
 	priv->firmware_ready = 1;
 	wake_up(&priv->wsm_startup_done);
@@ -1805,16 +1805,18 @@ static int wsm_buf_reserve(struct wsm_buf *buf, size_t extra_size)
 {
 	size_t pos = buf->data - buf->begin;
 	size_t size = pos + extra_size;
+	u8 *tmp;
 
 	size = round_up(size, FWLOAD_BLOCK_SIZE);
 
-	buf->begin = krealloc(buf->begin, size, GFP_KERNEL | GFP_DMA);
-	if (buf->begin) {
-		buf->data = &buf->begin[pos];
-		buf->end = &buf->begin[size];
-		return 0;
-	} else {
-		buf->end = buf->data = buf->begin;
+	tmp = krealloc(buf->begin, size, GFP_KERNEL | GFP_DMA);
+	if (!tmp) {
+		wsm_buf_deinit(buf);
 		return -ENOMEM;
 	}
+
+	buf->begin = tmp;
+	buf->data = &buf->begin[pos];
+	buf->end = &buf->begin[size];
+	return 0;
 }

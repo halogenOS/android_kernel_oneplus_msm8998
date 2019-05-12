@@ -322,8 +322,12 @@ struct ieee80211_regdomain *iwl_mvm_get_regdomain(struct wiphy *wiphy,
 		goto out;
 	}
 
-	if (changed)
-		*changed = (resp->status == MCC_RESP_NEW_CHAN_PROFILE);
+	if (changed) {
+		u32 status = le32_to_cpu(resp->status);
+
+		*changed = (status == MCC_RESP_NEW_CHAN_PROFILE ||
+			    status == MCC_RESP_ILLEGAL);
+	}
 
 	regd = iwl_parse_nvm_mcc_info(mvm->trans->dev, mvm->cfg,
 				      __le32_to_cpu(resp->n_channels),
@@ -544,18 +548,18 @@ int iwl_mvm_mac_setup_register(struct iwl_mvm *mvm)
 	else
 		mvm->max_scans = IWL_MVM_MAX_LMAC_SCANS;
 
-	if (mvm->nvm_data->bands[IEEE80211_BAND_2GHZ].n_channels)
-		hw->wiphy->bands[IEEE80211_BAND_2GHZ] =
-			&mvm->nvm_data->bands[IEEE80211_BAND_2GHZ];
-	if (mvm->nvm_data->bands[IEEE80211_BAND_5GHZ].n_channels) {
-		hw->wiphy->bands[IEEE80211_BAND_5GHZ] =
-			&mvm->nvm_data->bands[IEEE80211_BAND_5GHZ];
+	if (mvm->nvm_data->bands[NL80211_BAND_2GHZ].n_channels)
+		hw->wiphy->bands[NL80211_BAND_2GHZ] =
+			&mvm->nvm_data->bands[NL80211_BAND_2GHZ];
+	if (mvm->nvm_data->bands[NL80211_BAND_5GHZ].n_channels) {
+		hw->wiphy->bands[NL80211_BAND_5GHZ] =
+			&mvm->nvm_data->bands[NL80211_BAND_5GHZ];
 
 		if (fw_has_capa(&mvm->fw->ucode_capa,
 				IWL_UCODE_TLV_CAPA_BEAMFORMER) &&
 		    fw_has_api(&mvm->fw->ucode_capa,
 			       IWL_UCODE_TLV_API_LQ_SS_PARAMS))
-			hw->wiphy->bands[IEEE80211_BAND_5GHZ]->vht_cap.cap |=
+			hw->wiphy->bands[NL80211_BAND_5GHZ]->vht_cap.cap |=
 				IEEE80211_VHT_CAP_SU_BEAMFORMER_CAPABLE;
 	}
 
@@ -3122,7 +3126,7 @@ static int iwl_mvm_send_aux_roc_cmd(struct iwl_mvm *mvm,
 			cpu_to_le32(FW_CMD_ID_AND_COLOR(MAC_INDEX_AUX, 0)),
 		.sta_id_and_color = cpu_to_le32(mvm->aux_sta.sta_id),
 		/* Set the channel info data */
-		.channel_info.band = (channel->band == IEEE80211_BAND_2GHZ) ?
+		.channel_info.band = (channel->band == NL80211_BAND_2GHZ) ?
 			PHY_BAND_24 : PHY_BAND_5,
 		.channel_info.channel = channel->hw_value,
 		.channel_info.width = PHY_VHT_CHANNEL_MODE20,
@@ -4049,10 +4053,6 @@ static void iwl_mvm_mac_sta_statistics(struct ieee80211_hw *hw,
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
-
-	if (!fw_has_capa(&mvm->fw->ucode_capa,
-			 IWL_UCODE_TLV_CAPA_RADIO_BEACON_STATS))
-		return;
 
 	/* if beacon filtering isn't on mac80211 does it anyway */
 	if (!(vif->driver_flags & IEEE80211_VIF_BEACON_FILTER))

@@ -4,6 +4,10 @@
 #include <asm/processor-flags.h>
 
 #ifndef __ASSEMBLY__
+
+/* Provide __cpuidle; we can't safely include <linux/cpu.h> */
+#define __cpuidle __attribute__((__section__(".cpuidle.text")))
+
 /*
  * Interrupt control:
  */
@@ -28,7 +32,8 @@ extern inline unsigned long native_save_fl(void)
 	return flags;
 }
 
-static inline void native_restore_fl(unsigned long flags)
+extern inline void native_restore_fl(unsigned long flags);
+extern inline void native_restore_fl(unsigned long flags)
 {
 	asm volatile("push %0 ; popf"
 		     : /* no output */
@@ -46,12 +51,12 @@ static inline void native_irq_enable(void)
 	asm volatile("sti": : :"memory");
 }
 
-static inline void native_safe_halt(void)
+static inline __cpuidle void native_safe_halt(void)
 {
 	asm volatile("sti; hlt": : :"memory");
 }
 
-static inline void native_halt(void)
+static inline __cpuidle void native_halt(void)
 {
 	asm volatile("hlt": : :"memory");
 }
@@ -88,7 +93,7 @@ static inline notrace void arch_local_irq_enable(void)
  * Used in the idle loop; sti takes one instruction cycle
  * to complete:
  */
-static inline void arch_safe_halt(void)
+static inline __cpuidle void arch_safe_halt(void)
 {
 	native_safe_halt();
 }
@@ -97,7 +102,7 @@ static inline void arch_safe_halt(void)
  * Used when interrupts are already enabled or to
  * shutdown the processor:
  */
-static inline void halt(void)
+static inline __cpuidle void halt(void)
 {
 	native_halt();
 }

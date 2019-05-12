@@ -1550,12 +1550,12 @@ static int find_num_channels(struct mixer_build *state, int dir)
 static int parse_audio_feature_unit(struct mixer_build *state, int unitid,
 				    void *_ftr)
 {
-	int channels, i, j;
+	int channels = 0, i, j;
 	struct usb_audio_term iterm;
 	unsigned int master_bits, first_ch_bits;
 	int err, csize;
 	struct uac_feature_unit_descriptor *hdr = _ftr;
-	__u8 *bmaControls;
+	__u8 *bmaControls = NULL;
 
 	if (state->mixer->protocol == UAC_VERSION_1) {
 		if (hdr->bLength < 7) {
@@ -2080,7 +2080,7 @@ static int build_audio_procunit(struct mixer_build *state, int unitid,
 				char *name)
 {
 	struct uac_processing_unit_descriptor *desc = raw_desc;
-	int num_ins = desc->bNrInPins;
+	int num_ins;
 	struct usb_mixer_elem_info *cval;
 	struct snd_kcontrol *kctl;
 	int i, err, nameid, type, len;
@@ -2095,7 +2095,13 @@ static int build_audio_procunit(struct mixer_build *state, int unitid,
 		0, NULL, default_value_info
 	};
 
-	if (desc->bLength < 13 || desc->bLength < 13 + num_ins ||
+	if (desc->bLength < 13) {
+		usb_audio_err(state->chip, "invalid %s descriptor (id %d)\n", name, unitid);
+		return -EINVAL;
+	}
+
+	num_ins = desc->bNrInPins;
+	if (desc->bLength < 13 + num_ins ||
 	    desc->bLength < num_ins + uac_processing_unit_bControlSize(desc, state->mixer->protocol)) {
 		usb_audio_err(state->chip, "invalid %s descriptor (id %d)\n", name, unitid);
 		return -EINVAL;

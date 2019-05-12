@@ -621,9 +621,6 @@ static inline int __msm_remove_session_cmd_ack_q(void *d1, void *d2)
 {
 	struct msm_command_ack *cmd_ack = d1;
 
-	if (!(&cmd_ack->command_q))
-		return 0;
-
 	msm_queue_drain(&cmd_ack->command_q, struct msm_command, list);
 
 	return 0;
@@ -631,7 +628,7 @@ static inline int __msm_remove_session_cmd_ack_q(void *d1, void *d2)
 
 static void msm_remove_session_cmd_ack_q(struct msm_session *session)
 {
-	if ((!session) || !(&session->command_ack_q))
+	if (!session)
 		return;
 
 	mutex_lock(&session->lock);
@@ -1222,21 +1219,19 @@ long msm_copy_camera_private_ioctl_args(unsigned long arg,
 	struct msm_camera_private_ioctl_arg *k_ioctl,
 	void __user **tmp_compat_ioctl_ptr)
 {
-	struct msm_camera_private_ioctl_arg up_ioctl;
+	struct msm_camera_private_ioctl_arg u_ioctl;
 
 	if (WARN_ON(!arg || !k_ioctl || !tmp_compat_ioctl_ptr))
 		return -EIO;
 
-	if (copy_from_user(&up_ioctl,
-		(struct msm_camera_private_ioctl_arg *)arg,
-		sizeof(struct msm_camera_private_ioctl_arg)))
+	if (copy_from_user(&u_ioctl, (void __user *)arg, sizeof(u_ioctl)))
 		return -EFAULT;
 
-	k_ioctl->id = up_ioctl.id;
-	k_ioctl->size = up_ioctl.size;
-	k_ioctl->result = up_ioctl.result;
-	k_ioctl->reserved = up_ioctl.reserved;
-	*tmp_compat_ioctl_ptr = compat_ptr(up_ioctl.ioctl_ptr);
+	k_ioctl->id = u_ioctl.id;
+	k_ioctl->size = u_ioctl.size;
+	k_ioctl->result = u_ioctl.result;
+	k_ioctl->reserved = u_ioctl.reserved;
+	*tmp_compat_ioctl_ptr = compat_ptr(u_ioctl.ioctl_ptr);
 
 	return 0;
 }
@@ -1349,7 +1344,7 @@ static int msm_probe(struct platform_device *pdev)
 	if (WARN_ON(rc < 0))
 		goto media_fail;
 
-	if (WARN_ON((rc == media_entity_init(&pvdev->vdev->entity,
+	if (WARN_ON((rc = media_entity_init(&pvdev->vdev->entity,
 			0, NULL, 0)) < 0))
 		goto entity_fail;
 

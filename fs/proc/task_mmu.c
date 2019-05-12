@@ -143,7 +143,7 @@ static void seq_print_vma_name(struct seq_file *m, struct vm_area_struct *vma)
 		struct page *page;
 
 		pages_pinned = get_user_pages(current, mm, page_start_vaddr,
-				1, 0, 0, &page, NULL);
+				1, 0, &page, NULL);
 		if (pages_pinned < 1) {
 			seq_puts(m, "<fault>]");
 			return;
@@ -1591,7 +1591,7 @@ out:
 static ssize_t reclaim_write(struct file *file, const char __user *buf,
 				size_t count, loff_t *ppos)
 {
-	struct task_struct *task;
+	struct task_struct *task = NULL;
 	char buffer[200];
 	struct mm_struct *mm;
 	struct vm_area_struct *vma;

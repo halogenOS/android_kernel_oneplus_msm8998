@@ -2190,8 +2190,11 @@ static int qpnp_adc_tm_disable_rearm_high_thresholds(
 		return rc;
 	}
 
-	queue_work(chip->sensor[sensor_num].req_wq,
-				&chip->sensor[sensor_num].work);
+	if (!queue_work(chip->sensor[sensor_num].req_wq,
+				&chip->sensor[sensor_num].work)) {
+		/* The item is already queued, reduce the count */
+		atomic_dec(&chip->wq_cnt);
+	}
 
 	return rc;
 }
@@ -2289,9 +2292,11 @@ static int qpnp_adc_tm_disable_rearm_low_thresholds(
 		return rc;
 	}
 
-	queue_work(chip->sensor[sensor_num].req_wq,
-				&chip->sensor[sensor_num].work);
-
+	if (!queue_work(chip->sensor[sensor_num].req_wq,
+				&chip->sensor[sensor_num].work)) {
+		/* The item is already queued, reduce the count */
+		atomic_dec(&chip->wq_cnt);
+	}
 	return rc;
 }
 
@@ -2682,13 +2687,14 @@ static irqreturn_t qpnp_adc_tm_rc_thr_isr(int irq, void *data)
 	}
 
 	if (sensor_low_notify_num) {
-		atomic_inc(&chip->wq_cnt);
-		queue_work(chip->low_thr_wq, &chip->trigger_low_thr_work);
+		if (queue_work(chip->low_thr_wq, &chip->trigger_low_thr_work))
+			atomic_inc(&chip->wq_cnt);
 	}
 
 	if (sensor_high_notify_num) {
-		atomic_inc(&chip->wq_cnt);
-		queue_work(chip->high_thr_wq, &chip->trigger_high_thr_work);
+		if (queue_work(chip->high_thr_wq,
+				&chip->trigger_high_thr_work))
+			atomic_inc(&chip->wq_cnt);
 	}
 
 	return IRQ_HANDLED;
@@ -2915,21 +2921,21 @@ int32_t qpnp_adc_tm_disable_chan_meas(struct qpnp_adc_tm_chip *chip,
 					QPNP_BTM_Mn_HIGH_THR_INT_EN, false);
 		if (rc < 0) {
 			pr_err("high thr disable err:%d\n", btm_chan_num);
-			return rc;
+			goto fail;
 		}
 
 		rc = qpnp_adc_tm_reg_update(chip, QPNP_BTM_Mn_EN(btm_chan_num),
 					QPNP_BTM_Mn_LOW_THR_INT_EN, false);
 		if (rc < 0) {
 			pr_err("low thr disable err:%d\n", btm_chan_num);
-			return rc;
+			goto fail;
 		}
 
 		rc = qpnp_adc_tm_reg_update(chip, QPNP_BTM_Mn_EN(btm_chan_num),
 					QPNP_BTM_Mn_MEAS_EN, false);
 		if (rc < 0) {
 			pr_err("multi measurement disable failed\n");
-			return rc;
+			goto fail;
 		}
 	}
 

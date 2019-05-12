@@ -31,6 +31,7 @@
 #include <linux/reboot.h>
 #include <linux/irqchip/msm-mpm-irq.h>
 #include <linux/suspend.h>
+#include <linux/wakeup_reason.h>
 #include "../core.h"
 #include "../pinconf.h"
 #include "pinctrl-msm.h"
@@ -847,7 +848,7 @@ int get_resume_wakeup_flag(void)
         return flag;
 }
 
-static void msm_gpio_irq_handler(struct irq_desc *desc)
+static bool msm_gpio_irq_handler(struct irq_desc *desc)
 {
 	struct gpio_chip *gc = irq_desc_get_handler_data(desc);
 	const struct msm_pingroup *g;
@@ -857,7 +858,8 @@ static void msm_gpio_irq_handler(struct irq_desc *desc)
 	int handled = 0;
 	u32 val;
 	int i;
-       char irq_name[16] = {0};
+	char irq_name[16] = {0};
+	bool ret;
 
 	chained_irq_enter(chip, desc);
 
@@ -882,22 +884,23 @@ static void msm_gpio_irq_handler(struct irq_desc *desc)
 					"soc:fpc_fpc1020", 16) != NULL ||
 					strnstr(irq_name, "gf_fp", 6) != NULL) {
 					fp_irq_cnt = true;
-					c0_cpufreq_limit_queue();
 				}
 				set_resume_wakeup_flag(irq_pin);
 				pr_warn("hwirq %s [irq_num=%d ]triggered\n",
 				irq_to_desc(irq_pin)->action->name, irq_pin);
-				log_wakeup_reason(irq_pin);
+				log_base_wakeup_reason(irq_pin);
 			}
 			/* -- */
 		}
 	}
 
+	ret = (handled != 0);
 	/* No interrupts were flagged */
 	if (handled == 0)
-		handle_bad_irq(desc);
+		ret = handle_bad_irq(desc);
 
 	chained_irq_exit(chip, desc);
+	return ret;
 }
 
 /*
@@ -939,17 +942,30 @@ static int msm_gpio_init(struct msm_pinctrl *pctrl)
 		return ret;
 	}
 
-	ret = gpiochip_add_pin_range(&pctrl->chip, dev_name(pctrl->dev), 0, 0, chip->ngpio);
-	if (ret) {
-		dev_err(pctrl->dev, "Failed to add pin range\n");
-		gpiochip_remove(&pctrl->chip);
-		return ret;
+	/*
+	 * For DeviceTree-supported systems, the gpio core checks the
+	 * pinctrl's device node for the "gpio-ranges" property.
+	 * If it is present, it takes care of adding the pin ranges
+	 * for the driver. In this case the driver can skip ahead.
+	 *
+	 * In order to remain compatible with older, existing DeviceTree
+	 * files which don't set the "gpio-ranges" property or systems that
+	 * utilize ACPI the driver has to call gpiochip_add_pin_range().
+	 */
+	if (!of_property_read_bool(pctrl->dev->of_node, "gpio-ranges")) {
+		ret = gpiochip_add_pin_range(&pctrl->chip,
+			dev_name(pctrl->dev), 0, 0, chip->ngpio);
+		if (ret) {
+			dev_err(pctrl->dev, "Failed to add pin range\n");
+			gpiochip_remove(&pctrl->chip);
+			return ret;
+		}
 	}
 
 	ret = gpiochip_irqchip_add(chip,
 				   &msm_gpio_irq_chip,
 				   0,
-				   handle_edge_irq,
+				   handle_fasteoi_irq,
 				   IRQ_TYPE_NONE);
 	if (ret) {
 		dev_err(pctrl->dev, "Failed to add irqchip to gpiochip\n");
@@ -1049,7 +1065,7 @@ static void msm_pinctrl_resume(void)
 				name = "stray irq";
 			else if (desc->action && desc->action->name)
 				name = desc->action->name;
-
+			log_base_wakeup_reason(irq);
 			pr_warn("%s: %d triggered %s\n", __func__, irq, name);
 		}
 	}

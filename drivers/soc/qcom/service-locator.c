@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2015-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -34,6 +34,7 @@
 #define QMI_SERVREG_LOC_SERVER_INITIAL_TIMEOUT		2000
 #define QMI_SERVREG_LOC_SERVER_TIMEOUT			2000
 #define INITIAL_TIMEOUT					100000
+#define LOCATOR_SERVICE_TIMEOUT				300000
 
 #define LOCATOR_NOT_PRESENT	0
 #define LOCATOR_PRESENT		1
@@ -251,7 +252,6 @@ static int service_locator_send_msg(struct pd_qmi_client_data *pd)
 	req->domain_offset_valid = true;
 	req->domain_offset = 0;
 
-	pd->domain_list = NULL;
 	do {
 		req->domain_offset += domains_read;
 		rc = servreg_loc_send_msg(&req_desc, &resp_desc, req, resp,
@@ -281,6 +281,7 @@ static int service_locator_send_msg(struct pd_qmi_client_data *pd)
 			pr_err("Service Locator DB updated for client %s\n",
 				pd->client_name);
 			kfree(pd->domain_list);
+			pd->domain_list = NULL;
 			rc = -EAGAIN;
 			goto out;
 		}
@@ -302,11 +303,18 @@ out:
 static int init_service_locator(void)
 {
 	int rc = 0;
+	static bool service_timedout;
 
-	mutex_lock(&service_init_mutex);
+	rc = mutex_lock_interruptible(&service_init_mutex);
+	if (rc)
+		return rc;
 	if (locator_status == LOCATOR_NOT_PRESENT) {
 		pr_err("Service Locator not enabled\n");
 		rc = -ENODEV;
+		goto inited;
+	}
+	if (service_timedout) {
+		rc = -ETIME;
 		goto inited;
 	}
 	if (service_inited)
@@ -336,7 +344,20 @@ static int init_service_locator(void)
 		goto inited;
 	}
 
-	wait_for_completion(&service_locator.service_available);
+	rc = wait_for_completion_interruptible_timeout(
+				&service_locator.service_available,
+				msecs_to_jiffies(LOCATOR_SERVICE_TIMEOUT));
+	if (rc < 0) {
+		pr_err("Wait for locator service interrupted by signal\n");
+		goto inited;
+	}
+	if (!rc) {
+		pr_err("%s: wait for locator service timed out\n", __func__);
+		service_timedout = true;
+		rc = -ETIME;
+		goto inited;
+	}
+
 	service_inited = true;
 	mutex_unlock(&service_init_mutex);
 	pr_info("Service locator initialized\n");
@@ -360,7 +381,7 @@ int get_service_location(char *client_name, char *service_name,
 		goto err;
 	}
 
-	pqcd = kmalloc(sizeof(struct pd_qmi_client_data), GFP_KERNEL);
+	pqcd = kzalloc(sizeof(struct pd_qmi_client_data), GFP_KERNEL);
 	if (!pqcd) {
 		rc = -ENOMEM;
 		pr_err("Allocation failed\n");
@@ -401,7 +422,7 @@ static void pd_locator_work(struct work_struct *work)
 		pr_err("Unable to connect to service locator!, rc = %d\n", rc);
 		pdqw->notifier->notifier_call(pdqw->notifier,
 			LOCATOR_DOWN, NULL);
-		goto err;
+		goto err_init_servloc;
 	}
 	rc = service_locator_send_msg(data);
 	if (rc) {
@@ -409,11 +430,13 @@ static void pd_locator_work(struct work_struct *work)
 			data->service_name, data->client_name, rc);
 		pdqw->notifier->notifier_call(pdqw->notifier,
 			LOCATOR_DOWN, NULL);
-		goto err;
+		goto err_servloc_send_msg;
 	}
 	pdqw->notifier->notifier_call(pdqw->notifier, LOCATOR_UP, data);
 
-err:
+err_servloc_send_msg:
+	kfree(data->domain_list);
+err_init_servloc:
 	kfree(data);
 	kfree(pdqw);
 }

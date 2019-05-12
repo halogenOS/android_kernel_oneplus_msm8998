@@ -125,8 +125,8 @@ static int create_gpio_led(const struct gpio_led *template,
 			return ret;
 
 		led_dat->gpiod = gpio_to_desc(template->gpio);
-		if (IS_ERR(led_dat->gpiod))
-			return PTR_ERR(led_dat->gpiod);
+		if (!led_dat->gpiod)
+			return -EINVAL;
 	}
 
 	led_dat->cdev.name = template->name;
@@ -185,7 +185,7 @@ static struct gpio_leds_priv *gpio_leds_create(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct fwnode_handle *child;
-	struct gpio_leds_priv *priv;
+	struct gpio_leds_priv *priv = { 0 };
 	int count, ret;
 	struct device_node *np;
 
@@ -263,7 +263,7 @@ MODULE_DEVICE_TABLE(of, of_gpio_leds_match);
 static int gpio_led_probe(struct platform_device *pdev)
 {
 	struct gpio_led_platform_data *pdata = dev_get_platdata(&pdev->dev);
-	struct gpio_leds_priv *priv;
+	struct gpio_leds_priv *priv = { 0 };
 	int i, ret = 0;
 
 	if (pdata) {

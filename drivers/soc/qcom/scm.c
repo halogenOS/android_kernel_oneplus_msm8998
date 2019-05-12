@@ -1,4 +1,4 @@
-/* Copyright (c) 2010-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2010-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -194,9 +194,9 @@ static int scm_remap_error(int err)
 static u32 smc(u32 cmd_addr)
 {
 	int context_id;
-	register u32 r0 asm("r0") = 1;
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = cmd_addr;
+	register u32 r0 asm(R0_STR) = 1;
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = cmd_addr;
 	do {
 		asm volatile(
 			__asmeq("%0", R0_STR)
@@ -209,7 +209,7 @@ static u32 smc(u32 cmd_addr)
 			"smc	#0\n"
 			: "=r" (r0)
 			: "r" (r0), "r" (r1), "r" (r2)
-			: "r3");
+			: R3_STR);
 	} while (r0 == SCM_INTERRUPTED);
 
 	return r0;
@@ -382,13 +382,13 @@ int scm_call_noalloc(u32 svc_id, u32 cmd_id, const void *cmd_buf,
 static int __scm_call_armv8_64(u64 x0, u64 x1, u64 x2, u64 x3, u64 x4, u64 x5,
 				u64 *ret1, u64 *ret2, u64 *ret3)
 {
-	register u64 r0 asm("r0") = x0;
-	register u64 r1 asm("r1") = x1;
-	register u64 r2 asm("r2") = x2;
-	register u64 r3 asm("r3") = x3;
-	register u64 r4 asm("r4") = x4;
-	register u64 r5 asm("r5") = x5;
-	register u64 r6 asm("r6") = 0;
+	register u64 r0 asm("x0") = x0;
+	register u64 r1 asm("x1") = x1;
+	register u64 r2 asm("x2") = x2;
+	register u64 r3 asm("x3") = x3;
+	register u64 r4 asm("x4") = x4;
+	register u64 r5 asm("x5") = x5;
+	register u64 r6 asm("x6") = 0;
 
 	do {
 		asm volatile(
@@ -431,13 +431,13 @@ static int __scm_call_armv8_64(u64 x0, u64 x1, u64 x2, u64 x3, u64 x4, u64 x5,
 static int __scm_call_armv8_32(u32 w0, u32 w1, u32 w2, u32 w3, u32 w4, u32 w5,
 				u64 *ret1, u64 *ret2, u64 *ret3)
 {
-	register u32 r0 asm("r0") = w0;
-	register u32 r1 asm("r1") = w1;
-	register u32 r2 asm("r2") = w2;
-	register u32 r3 asm("r3") = w3;
-	register u32 r4 asm("r4") = w4;
-	register u32 r5 asm("r5") = w5;
-	register u32 r6 asm("r6") = 0;
+	register u32 r0 asm("w0") = w0;
+	register u32 r1 asm("w1") = w1;
+	register u32 r2 asm("w2") = w2;
+	register u32 r3 asm("w3") = w3;
+	register u32 r4 asm("w4") = w4;
+	register u32 r5 asm("w5") = w5;
+	register u32 r6 asm("w6") = 0;
 
 	do {
 		asm volatile(
@@ -635,28 +635,7 @@ static int allocate_extra_arg_buffer(struct scm_desc *desc, gfp_t flags)
 	return 0;
 }
 
-/**
- * scm_call2() - Invoke a syscall in the secure world
- * @fn_id: The function ID for this syscall
- * @desc: Descriptor structure containing arguments and return values
- *
- * Sends a command to the SCM and waits for the command to finish processing.
- * This should *only* be called in pre-emptible context.
- *
- * A note on cache maintenance:
- * Note that any buffers that are expected to be accessed by the secure world
- * must be flushed before invoking scm_call and invalidated in the cache
- * immediately after scm_call returns. An important point that must be noted
- * is that on ARMV8 architectures, invalidation actually also causes a dirty
- * cache line to be cleaned (flushed + unset-dirty-bit). Therefore it is of
- * paramount importance that the buffer be flushed before invoking scm_call2,
- * even if you don't care about the contents of that buffer.
- *
- * Note that cache maintenance on the argument buffer (desc->args) is taken care
- * of by scm_call2; however, callers are responsible for any other cached
- * buffers passed over to the secure world.
-*/
-int scm_call2(u32 fn_id, struct scm_desc *desc)
+static int __scm_call2(u32 fn_id, struct scm_desc *desc, bool retry)
 {
 	int arglen = desc->arginfo & 0xf;
 	int ret, retry_count = 0;
@@ -670,7 +649,6 @@ int scm_call2(u32 fn_id, struct scm_desc *desc)
 		return ret;
 
 	x0 = fn_id | scm_version_mask;
-
 	do {
 		mutex_lock(&scm_lock);
 
@@ -700,13 +678,15 @@ int scm_call2(u32 fn_id, struct scm_desc *desc)
 			mutex_unlock(&scm_lmh_lock);
 
 		mutex_unlock(&scm_lock);
+		if (!retry)
+			goto out;
 
 		if (ret == SCM_V2_EBUSY)
 			msleep(SCM_EBUSY_WAIT_MS);
 		if (retry_count == 33)
 			pr_warn("scm: secure world has been busy for 1 second!\n");
-	}  while (ret == SCM_V2_EBUSY && (retry_count++ < SCM_EBUSY_MAX_RETRY));
-
+	} while (ret == SCM_V2_EBUSY && (retry_count++ < SCM_EBUSY_MAX_RETRY));
+out:
 	if (ret < 0)
 		pr_err("scm_call failed: func id %#llx, ret: %d, syscall returns: %#llx, %#llx, %#llx\n",
 			x0, ret, desc->ret[0], desc->ret[1], desc->ret[2]);
@@ -717,7 +697,45 @@ int scm_call2(u32 fn_id, struct scm_desc *desc)
 		return scm_remap_error(ret);
 	return 0;
 }
+
+/**
+ * scm_call2() - Invoke a syscall in the secure world
+ * @fn_id: The function ID for this syscall
+ * @desc: Descriptor structure containing arguments and return values
+ *
+ * Sends a command to the SCM and waits for the command to finish processing.
+ * This should *only* be called in pre-emptible context.
+ *
+ * A note on cache maintenance:
+ * Note that any buffers that are expected to be accessed by the secure world
+ * must be flushed before invoking scm_call and invalidated in the cache
+ * immediately after scm_call returns. An important point that must be noted
+ * is that on ARMV8 architectures, invalidation actually also causes a dirty
+ * cache line to be cleaned (flushed + unset-dirty-bit). Therefore it is of
+ * paramount importance that the buffer be flushed before invoking scm_call2,
+ * even if you don't care about the contents of that buffer.
+ *
+ * Note that cache maintenance on the argument buffer (desc->args) is taken care
+ * of by scm_call2; however, callers are responsible for any other cached
+ * buffers passed over to the secure world.
+ */
+int scm_call2(u32 fn_id, struct scm_desc *desc)
+{
+	return __scm_call2(fn_id, desc, true);
+}
 EXPORT_SYMBOL(scm_call2);
+
+/**
+ * scm_call2_noretry() - Invoke a syscall in the secure world
+ *
+ * Similar to scm_call2 except that there is no retry mechanism
+ * implemented.
+ */
+int scm_call2_noretry(u32 fn_id, struct scm_desc *desc)
+{
+	return __scm_call2(fn_id, desc, false);
+}
+EXPORT_SYMBOL(scm_call2_noretry);
 
 /**
  * scm_call2_atomic() - Invoke a syscall in the secure world
@@ -825,9 +843,9 @@ EXPORT_SYMBOL(scm_call);
 s32 scm_call_atomic1(u32 svc, u32 cmd, u32 arg1)
 {
 	int context_id;
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 1);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
+	register u32 r0 asm(R0_STR) = SCM_ATOMIC(svc, cmd, 1);
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = arg1;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -840,7 +858,7 @@ s32 scm_call_atomic1(u32 svc, u32 cmd, u32 arg1)
 		"smc	#0\n"
 		: "=r" (r0)
 		: "r" (r0), "r" (r1), "r" (r2)
-		: "r3");
+		: R3_STR);
 	return r0;
 }
 EXPORT_SYMBOL(scm_call_atomic1);
@@ -858,9 +876,9 @@ EXPORT_SYMBOL(scm_call_atomic1);
 s32 scm_call_atomic1_1(u32 svc, u32 cmd, u32 arg1, u32 *ret1)
 {
 	int context_id;
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 1);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
+	register u32 r0 asm(R0_STR) = SCM_ATOMIC(svc, cmd, 1);
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = arg1;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -874,7 +892,7 @@ s32 scm_call_atomic1_1(u32 svc, u32 cmd, u32 arg1, u32 *ret1)
 		"smc	#0\n"
 		: "=r" (r0), "=r" (r1)
 		: "r" (r0), "r" (r1), "r" (r2)
-		: "r3");
+		: R3_STR);
 	if (ret1)
 		*ret1 = r1;
 	return r0;
@@ -894,10 +912,10 @@ EXPORT_SYMBOL(scm_call_atomic1_1);
 s32 scm_call_atomic2(u32 svc, u32 cmd, u32 arg1, u32 arg2)
 {
 	int context_id;
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 2);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
-	register u32 r3 asm("r3") = arg2;
+	register u32 r0 asm(R0_STR) = SCM_ATOMIC(svc, cmd, 2);
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = arg1;
+	register u32 r3 asm(R3_STR) = arg2;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -929,11 +947,11 @@ EXPORT_SYMBOL(scm_call_atomic2);
 s32 scm_call_atomic3(u32 svc, u32 cmd, u32 arg1, u32 arg2, u32 arg3)
 {
 	int context_id;
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 3);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
-	register u32 r3 asm("r3") = arg2;
-	register u32 r4 asm("r4") = arg3;
+	register u32 r0 asm(R0_STR) = SCM_ATOMIC(svc, cmd, 3);
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = arg1;
+	register u32 r3 asm(R3_STR) = arg2;
+	register u32 r4 asm(R4_STR) = arg3;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -957,12 +975,12 @@ s32 scm_call_atomic4_3(u32 svc, u32 cmd, u32 arg1, u32 arg2,
 {
 	int ret;
 	int context_id;
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 4);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
-	register u32 r3 asm("r3") = arg2;
-	register u32 r4 asm("r4") = arg3;
-	register u32 r5 asm("r5") = arg4;
+	register u32 r0 asm(R0_STR) = SCM_ATOMIC(svc, cmd, 4);
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = arg1;
+	register u32 r3 asm(R3_STR) = arg2;
+	register u32 r4 asm(R4_STR) = arg3;
+	register u32 r5 asm(R5_STR) = arg4;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -1008,13 +1026,13 @@ s32 scm_call_atomic5_3(u32 svc, u32 cmd, u32 arg1, u32 arg2,
 {
 	int ret;
 	int context_id;
-	register u32 r0 asm("r0") = SCM_ATOMIC(svc, cmd, 5);
-	register u32 r1 asm("r1") = (uintptr_t)&context_id;
-	register u32 r2 asm("r2") = arg1;
-	register u32 r3 asm("r3") = arg2;
-	register u32 r4 asm("r4") = arg3;
-	register u32 r5 asm("r5") = arg4;
-	register u32 r6 asm("r6") = arg5;
+	register u32 r0 asm(R0_STR) = SCM_ATOMIC(svc, cmd, 5);
+	register u32 r1 asm(R1_STR) = (uintptr_t)&context_id;
+	register u32 r2 asm(R2_STR) = arg1;
+	register u32 r3 asm(R3_STR) = arg2;
+	register u32 r4 asm(R4_STR) = arg3;
+	register u32 r5 asm(R5_STR) = arg4;
+	register u32 r6 asm(R6_STR) = arg5;
 
 	asm volatile(
 		__asmeq("%0", R0_STR)
@@ -1048,8 +1066,8 @@ u32 scm_get_version(void)
 {
 	int context_id;
 	static u32 version = -1;
-	register u32 r0 asm("r0");
-	register u32 r1 asm("r1");
+	register u32 r0 asm(R0_STR);
+	register u32 r1 asm(R1_STR);
 
 	if (version != -1)
 		return version;
@@ -1070,7 +1088,7 @@ u32 scm_get_version(void)
 			"smc	#0\n"
 			: "=r" (r0), "=r" (r1)
 			: "r" (r0), "r" (r1)
-			: "r2", "r3");
+			: R2_STR, R3_STR);
 	} while (r0 == SCM_INTERRUPTED);
 
 	version = r1;

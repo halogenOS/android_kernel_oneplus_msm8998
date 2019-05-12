@@ -49,6 +49,7 @@ static inline int dev_requeue_skb(struct sk_buff *skb, struct Qdisc *q)
 {
 	q->gso_skb = skb;
 	q->qstats.requeues++;
+	qdisc_qstats_backlog_inc(q, skb);
 	q->q.qlen++;	/* it's still part of the queue */
 	__netif_schedule(q);
 
@@ -92,6 +93,7 @@ static struct sk_buff *dequeue_skb(struct Qdisc *q, bool *validate,
 		txq = skb_get_tx_queue(txq->dev, skb);
 		if (!netif_xmit_frozen_or_stopped(txq)) {
 			q->gso_skb = NULL;
+			qdisc_qstats_backlog_dec(q, skb);
 			q->q.qlen--;
 		} else
 			skb = NULL;
@@ -276,6 +278,9 @@ static void dev_watchdog(unsigned long arg)
 	struct net_device *dev = (struct net_device *)arg;
 
 	netif_tx_lock(dev);
+	if (!dev->watchdog_timeo)
+		return;
+
 	if (!qdisc_tx_is_noop(dev)) {
 		if (netif_device_present(dev) &&
 		    netif_running(dev) &&
@@ -301,11 +306,8 @@ static void dev_watchdog(unsigned long arg)
 				}
 			}
 
-			if (some_queue_timedout) {
-				WARN_ONCE(1, KERN_INFO "NETDEV WATCHDOG: %s (%s): transmit queue %u timed out\n",
-				       dev->name, netdev_drivername(dev), i);
+			if (some_queue_timedout)
 				dev->netdev_ops->ndo_tx_timeout(dev);
-			}
 			if (!mod_timer(&dev->watchdog_timer,
 				       round_jiffies(jiffies +
 						     dev->watchdog_timeo)))
@@ -319,8 +321,11 @@ static void dev_watchdog(unsigned long arg)
 
 void __netdev_watchdog_up(struct net_device *dev)
 {
+	if (!dev->watchdog_timeo)
+		return;
+
 	if (dev->netdev_ops->ndo_tx_timeout) {
-		if (dev->watchdog_timeo <= 0)
+		if (dev->watchdog_timeo < 0)
 			dev->watchdog_timeo = 5*HZ;
 		if (!mod_timer(&dev->watchdog_timer,
 			       round_jiffies(jiffies + dev->watchdog_timeo)))

@@ -133,6 +133,8 @@ retry:
 
 		if (lowest_mask) {
 			cpumask_and(lowest_mask, &p->cpus_allowed, vec->mask);
+			cpumask_andnot(lowest_mask, lowest_mask,
+				       cpu_isolated_mask);
 			if (drop_nopreempts)
 				drop_nopreempt_cpus(lowest_mask);
 			/*
@@ -241,8 +243,6 @@ void cpupri_set(struct cpupri *cp, int cpu, int newpri)
 int cpupri_init(struct cpupri *cp)
 {
 	int i;
-
-	memset(cp, 0, sizeof(*cp));
 
 	for (i = 0; i < CPUPRI_NR_PRIORITIES; i++) {
 		struct cpupri_vec *vec = &cp->pri_to_cpu[i];

@@ -2659,6 +2659,13 @@ int mdss_mdp_overlay_kickoff(struct msm_fb_data_type *mfd,
 		goto commit_fail;
 	}
 
+	ret = mdss_mdp_ctl_intf_event(ctl, MDSS_EVENT_DSI_DYNAMIC_BITCLK,
+		NULL, CTL_INTF_EVENT_FLAG_SKIP_BROADCAST);
+	if (IS_ERR_VALUE(ret)) {
+		pr_err("failed to update dynamic bit clk!\n");
+		goto commit_fail;
+	}
+
 	mutex_lock(&mdp5_data->ov_lock);
 
 	/* Disable secure display/camera for video mode panels */
@@ -3300,12 +3307,14 @@ int mdss_mdp_overlay_vsync_ctrl(struct msm_fb_data_type *mfd, int en)
 		goto end;
 	}
 
+	mdp5_data->vsync_en = en;
+
 	if (!ctl->panel_data->panel_info.cont_splash_enabled
 		&& (!mdss_mdp_ctl_is_power_on(ctl) ||
 		mdss_panel_is_power_on_ulp(ctl->power_state))) {
 		pr_debug("fb%d vsync pending first update en=%d, ctl power state:%d\n",
 				mfd->index, en, ctl->power_state);
-		rc = -EPERM;
+		rc = 0;
 		goto end;
 	}
 
@@ -5752,6 +5761,13 @@ static int mdss_mdp_overlay_on(struct msm_fb_data_type *mfd)
 	}
 
 panel_on:
+	if (mdp5_data->vsync_en) {
+		pr_info("reenabling vsync for fb%d\n", mfd->index);
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_ON);
+		rc = ctl->ops.add_vsync_handler(ctl, &ctl->vsync_handler);
+		mdss_mdp_clk_ctrl(MDP_BLOCK_POWER_OFF);
+	}
+
 	if (IS_ERR_VALUE(rc)) {
 		pr_err("Failed to turn on fb%d\n", mfd->index);
 		mdss_mdp_overlay_off(mfd);
@@ -6143,6 +6159,7 @@ static void __vsync_retire_signal(struct msm_fb_data_type *mfd, int val)
 {
 	struct mdss_overlay_private *mdp5_data = mfd_to_mdp5_data(mfd);
 
+	pm_qos_update_request(&mdp5_data->pm_qos_req, 100);
 	mutex_lock(&mfd->mdp_sync_pt_data.sync_mutex);
 	if (mdp5_data->retire_cnt > 0) {
 		sw_sync_timeline_inc(mdp5_data->vsync_timeline, val);
@@ -6159,6 +6176,7 @@ static void __vsync_retire_signal(struct msm_fb_data_type *mfd, int val)
 		}
 	}
 	mutex_unlock(&mfd->mdp_sync_pt_data.sync_mutex);
+	pm_qos_update_request(&mdp5_data->pm_qos_req, PM_QOS_DEFAULT_VALUE);
 }
 
 static struct sync_fence *
@@ -6257,7 +6275,7 @@ static int __vsync_retire_setup(struct msm_fb_data_type *mfd)
 	init_kthread_worker(&mdp5_data->worker);
 	init_kthread_work(&mdp5_data->vsync_work, __vsync_retire_work_handler);
 
-	mdp5_data->thread = kthread_run(kthread_worker_fn,
+	mdp5_data->thread = kthread_run_perf_critical(kthread_worker_fn,
 					&mdp5_data->worker, "vsync_retire_work");
 
 	if (IS_ERR(mdp5_data->thread)) {
@@ -6375,6 +6393,15 @@ void mdss_mdp_footswitch_ctrl_handler(bool on)
 static void mdss_mdp_signal_retire_fence(struct msm_fb_data_type *mfd,
 					 int retire_cnt)
 {
+	struct mdss_overlay_private *mdp5_data;
+
+	if (!mfd)
+		return;
+
+	mdp5_data = mfd_to_mdp5_data(mfd);
+	if (!mdp5_data->ctl || !mdp5_data->ctl->ops.remove_vsync_handler)
+		return;
+
 	__vsync_retire_signal(mfd, retire_cnt);
 	pr_debug("Signaled (%d) pending retire fence\n", retire_cnt);
 }
@@ -6584,6 +6611,7 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 		}
 	}
 	mfd->mdp_sync_pt_data.async_wait_fences = true;
+	mdp5_data->vsync_en = false;
 
 	pm_runtime_set_suspended(&mfd->pdev->dev);
 	pm_runtime_enable(&mfd->pdev->dev);
@@ -6619,6 +6647,9 @@ int mdss_mdp_overlay_init(struct msm_fb_data_type *mfd)
 
 	if (mdss_mdp_pp_overlay_init(mfd))
 		pr_warn("Failed to initialize pp overlay data.\n");
+
+	pm_qos_add_request(&mdp5_data->pm_qos_req, PM_QOS_CPU_DMA_LATENCY,
+			   PM_QOS_DEFAULT_VALUE);
 	return rc;
 init_fail:
 	kfree(mdp5_data);

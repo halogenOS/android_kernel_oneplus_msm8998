@@ -1,7 +1,7 @@
 /*
  * Core MDSS framebuffer driver.
  *
- * Copyright (c) 2008-2017, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2008-2018, The Linux Foundation. All rights reserved.
  * Copyright (C) 2007 Google Incorporated
  *
  * This software is licensed under the terms of the GNU General Public
@@ -46,6 +46,7 @@
 #include <linux/file.h>
 #include <linux/kthread.h>
 #include <linux/dma-buf.h>
+#include <linux/devfreq_boost.h>
 #include <sync.h>
 #include <sw_sync.h>
 
@@ -81,6 +82,15 @@
  * Default value is set to 1 sec.
  */
 #define MDP_TIME_PERIOD_CALC_FPS_US	1000000
+
+#define MDSS_BRIGHT_TO_BL_DIM(out, v) do {\
+			out = (12*v*v+1393*v+3060)/4465;\
+			} while (0)
+bool backlight_dimmer = false;
+module_param(backlight_dimmer, bool, 0644);
+
+int backlight_min = 0;
+module_param(backlight_min, int, 0644);
 
 static struct fb_info *fbi_list[MAX_FBI_LIST];
 static int fbi_list_index;
@@ -228,7 +238,8 @@ static int mdss_fb_notify_update(struct msm_fb_data_type *mfd,
 		mfd->update.ref_count++;
 		mutex_unlock(&mfd->update.lock);
 		ret = wait_for_completion_interruptible_timeout(
-						&mfd->update.comp, 4 * HZ);
+						&mfd->update.comp,
+						msecs_to_jiffies(4000));
 		mutex_lock(&mfd->update.lock);
 		mfd->update.ref_count--;
 		mutex_unlock(&mfd->update.lock);
@@ -251,7 +262,8 @@ static int mdss_fb_notify_update(struct msm_fb_data_type *mfd,
 		mfd->no_update.ref_count++;
 		mutex_unlock(&mfd->no_update.lock);
 		ret = wait_for_completion_interruptible_timeout(
-						&mfd->no_update.comp, 4 * HZ);
+						&mfd->no_update.comp,
+						msecs_to_jiffies(4000));
 		mutex_lock(&mfd->no_update.lock);
 		mfd->no_update.ref_count--;
 		mutex_unlock(&mfd->no_update.lock);
@@ -260,7 +272,8 @@ static int mdss_fb_notify_update(struct msm_fb_data_type *mfd,
 		if (mdss_fb_is_power_on(mfd)) {
 			reinit_completion(&mfd->power_off_comp);
 			ret = wait_for_completion_interruptible_timeout(
-						&mfd->power_off_comp, 1 * HZ);
+						&mfd->power_off_comp,
+						msecs_to_jiffies(1000));
 		}
 	}
 
@@ -287,10 +300,18 @@ static void mdss_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	if (value > mfd->panel_info->brightness_max)
 		value = mfd->panel_info->brightness_max;
 
-	/* This maps android backlight level 0 to 255 into
-	   driver backlight level 0 to bl_max with rounding */
-	MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
-				mfd->panel_info->brightness_max);
+	// Boeffla: apply min limits for LCD backlight (0 is exception for display off)
+	if (value != 0 && value < backlight_min)
+		value = backlight_min;
+
+	if (backlight_dimmer) {
+		MDSS_BRIGHT_TO_BL_DIM(bl_lvl, value);
+	} else {
+		/* This maps android backlight level 0 to 255 into
+		   driver backlight level 0 to bl_max with rounding */
+		MDSS_BRIGHT_TO_BL(bl_lvl, value, mfd->panel_info->bl_max,
+					mfd->panel_info->brightness_max);
+	}
 
 	if (!bl_lvl && value)
 		bl_lvl = 1;
@@ -518,11 +539,16 @@ static void __mdss_fb_idle_notify_work(struct work_struct *work)
 
 	/* Notify idle-ness here */
 	pr_debug("Idle timeout %dms expired!\n", mfd->idle_time);
-	if (mfd->idle_time)
-		sysfs_notify(&mfd->fbi->dev->kobj, NULL, "idle_notify");
-	mfd->idle_state = MDSS_FB_IDLE;
-}
 
+	mfd->idle_state = MDSS_FB_IDLE;
+	/*
+	 * idle_notify node events are used to reduce MDP load when idle,
+	 * this is not needed for command mode panels.
+	 */
+	if (mfd->idle_time && mfd->panel.type != MIPI_CMD_PANEL)
+		sysfs_notify(&mfd->fbi->dev->kobj, NULL, "idle_notify");
+	sysfs_notify(&mfd->fbi->dev->kobj, NULL, "idle_state");
+}
 
 static ssize_t mdss_fb_get_fps_info(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -584,6 +610,26 @@ static ssize_t mdss_fb_get_idle_notify(struct device *dev,
 	return ret;
 }
 
+static ssize_t mdss_fb_get_idle_state(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	const char *state_strs[] = {
+		[MDSS_FB_NOT_IDLE] = "active",
+		[MDSS_FB_IDLE_TIMER_RUNNING] = "pending",
+		[MDSS_FB_IDLE] = "idle",
+	};
+	int state = mfd->idle_state;
+	const char *s;
+	if (state < ARRAY_SIZE(state_strs) && state_strs[state])
+		s = state_strs[state];
+	else
+		s = "invalid";
+
+	return scnprintf(buf, PAGE_SIZE, "%s\n", s);
+}
+
 static ssize_t mdss_fb_get_panel_info(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -610,7 +656,7 @@ static ssize_t mdss_fb_get_panel_info(struct device *dev,
 			"red_chromaticity_x=%d\nred_chromaticity_y=%d\n"
 			"green_chromaticity_x=%d\ngreen_chromaticity_y=%d\n"
 			"blue_chromaticity_x=%d\nblue_chromaticity_y=%d\n"
-			"panel_orientation=%d\n",
+			"panel_orientation=%d\ndyn_bitclk_en=%d\n",
 			pinfo->partial_update_enabled,
 			pinfo->roi_alignment.xstart_pix_align,
 			pinfo->roi_alignment.width_pix_align,
@@ -636,7 +682,7 @@ static ssize_t mdss_fb_get_panel_info(struct device *dev,
 			pinfo->hdr_properties.display_primaries[5],
 			pinfo->hdr_properties.display_primaries[6],
 			pinfo->hdr_properties.display_primaries[7],
-			pinfo->panel_orientation);
+			pinfo->panel_orientation, pinfo->dynamic_bitclk);
 
 	return ret;
 }
@@ -886,6 +932,43 @@ end:
 	return len;
 }
 
+static ssize_t mdss_fb_get_hbm_mode(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	int ret = 0;
+	int level = 0;
+
+	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_HBM_MODE,
+			NULL);
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n", level);
+	return ret;
+}
+
+static ssize_t mdss_fb_set_hbm_mode(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = fbi->par;
+	int rc = 0;
+	int level = 0;
+
+	rc = kstrtoint(buf, 10, &level);
+	if (rc) {
+		pr_err("kstrtoint failed. rc=%d\n", rc);
+		return rc;
+	}
+    rc = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_SET_HBM_MODE,
+	    (void *)(unsigned long)level);
+	if (rc)
+		pr_err("Fail to set HBM Mode = %d \n", level);
+
+	return count;
+}
+
+static DEVICE_ATTR(hbm, S_IRUGO | S_IWUSR,
+mdss_fb_get_hbm_mode, mdss_fb_set_hbm_mode);
 
 static ssize_t mdss_fb_get_srgb_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -897,10 +980,7 @@ static ssize_t mdss_fb_get_srgb_mode(struct device *dev,
 
 	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_SRGB_MODE,
 			NULL);
-	ret = scnprintf(buf, PAGE_SIZE, "mode = %d\n"
-							"0-->sRGB Mode OFF\n"
-							"1-->sRGB Mode ON\n",
-							level);
+	ret=scnprintf(buf, PAGE_SIZE, "%d\n", level);
 	return ret;
 }
 
@@ -928,6 +1008,9 @@ static ssize_t mdss_fb_set_srgb_mode(struct device *dev,
 static DEVICE_ATTR(SRGB, S_IRUGO | S_IWUSR,
 	mdss_fb_get_srgb_mode, mdss_fb_set_srgb_mode);
 
+static DEVICE_ATTR(srgb, S_IRUGO | S_IWUSR,
+	mdss_fb_get_srgb_mode, mdss_fb_set_srgb_mode);
+
 
 static ssize_t mdss_fb_get_adobe_rgb_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
@@ -939,10 +1022,7 @@ static ssize_t mdss_fb_get_adobe_rgb_mode(struct device *dev,
 
 	level = mdss_fb_send_panel_event(mfd,
 		MDSS_EVENT_PANEL_GET_ADOBE_RGB_MODE, NULL);
-	ret = scnprintf(buf, PAGE_SIZE, "mode = %d\n"
-					"0-->Adobe RGB Mode OFF\n"
-					"1-->Adobe RGB Mode ON\n",
-					level);
+	ret=scnprintf(buf, PAGE_SIZE, "%d\n", level);
 	return ret;
 }
 
@@ -970,6 +1050,9 @@ static ssize_t mdss_fb_set_adobe_rgb_mode(struct device *dev,
 static DEVICE_ATTR(Adobe_RGB, S_IRUGO | S_IWUSR,
 	mdss_fb_get_adobe_rgb_mode, mdss_fb_set_adobe_rgb_mode);
 
+static DEVICE_ATTR(adobe_rgb, S_IRUGO | S_IWUSR,
+	mdss_fb_get_adobe_rgb_mode, mdss_fb_set_adobe_rgb_mode);
+
 static ssize_t mdss_fb_get_dci_p3_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -980,10 +1063,7 @@ static ssize_t mdss_fb_get_dci_p3_mode(struct device *dev,
 
 	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_DCI_P3_MODE,
 			NULL);
-	ret = scnprintf(buf, PAGE_SIZE, "mode = %d\n"
-						"0-->DCI-P3 Mode OFF\n"
-						"1-->DCI-P3 Mode ON\n",
-						level);
+	ret=scnprintf(buf, PAGE_SIZE, "%d\n", level);
 	return ret;
 }
 
@@ -1011,6 +1091,9 @@ static ssize_t mdss_fb_set_dci_p3_mode(struct device *dev,
 static DEVICE_ATTR(DCI_P3, S_IRUGO | S_IWUSR,
 	mdss_fb_get_dci_p3_mode, mdss_fb_set_dci_p3_mode);
 
+static DEVICE_ATTR(dci_p3, S_IRUGO | S_IWUSR,
+	mdss_fb_get_dci_p3_mode, mdss_fb_set_dci_p3_mode);
+
 static ssize_t mdss_fb_get_night_mode(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -1021,10 +1104,7 @@ static ssize_t mdss_fb_get_night_mode(struct device *dev,
 
 	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_NIGHT_MODE,
 			NULL);
-	ret = scnprintf(buf, PAGE_SIZE, "mode = %d\n"
-							"0-->Night Mode OFF\n"
-							"1-->Night Mode ON\n",
-							level);
+	ret=scnprintf(buf, PAGE_SIZE, "%d\n", level);
 	return ret;
 }
 
@@ -1062,10 +1142,7 @@ static ssize_t mdss_fb_get_oneplus_mode(struct device *dev,
 
 	level = mdss_fb_send_panel_event(mfd, MDSS_EVENT_PANEL_GET_ONEPLUS_MODE,
 			NULL);
-	ret = scnprintf(buf, PAGE_SIZE, "mode = %d\n"
-						"0-->Oneplus Mode OFF\n"
-						"1-->Oneplus Mode ON\n",
-						level);
+	ret=scnprintf(buf, PAGE_SIZE, "%d\n", level);
 	return ret;
 }
 
@@ -1103,10 +1180,7 @@ static ssize_t mdss_fb_get_adaption_mode(struct device *dev,
 
 	level = mdss_fb_send_panel_event(mfd,
 		MDSS_EVENT_PANEL_GET_ADAPTION_MODE, NULL);
-	ret = scnprintf(buf, PAGE_SIZE, "mode = %d\n"
-						"0-->Adaption Mode OFF\n"
-						"1-->Adaption Mode ON\n",
-						level);
+	ret=scnprintf(buf, PAGE_SIZE, "%d\n", level);
 	return ret;
 }
 
@@ -1169,6 +1243,7 @@ static DEVICE_ATTR(show_blank_event, S_IRUGO, mdss_mdp_show_blank_event, NULL);
 static DEVICE_ATTR(idle_time, S_IRUGO | S_IWUSR | S_IWGRP,
 	mdss_fb_get_idle_time, mdss_fb_set_idle_time);
 static DEVICE_ATTR(idle_notify, S_IRUGO, mdss_fb_get_idle_notify, NULL);
+static DEVICE_ATTR(idle_state, S_IRUGO, mdss_fb_get_idle_state, NULL);
 static DEVICE_ATTR(msm_fb_panel_info, S_IRUGO, mdss_fb_get_panel_info, NULL);
 static DEVICE_ATTR(msm_fb_src_split_info, S_IRUGO, mdss_fb_get_src_split_info,
 	NULL);
@@ -1190,6 +1265,7 @@ static struct attribute *mdss_fb_attrs[] = {
 	&dev_attr_show_blank_event.attr,
 	&dev_attr_idle_time.attr,
 	&dev_attr_idle_notify.attr,
+	&dev_attr_idle_state.attr,
 	&dev_attr_msm_fb_panel_info.attr,
 	&dev_attr_msm_fb_src_split_info.attr,
 	&dev_attr_msm_fb_thermal_level.attr,
@@ -1197,11 +1273,12 @@ static struct attribute *mdss_fb_attrs[] = {
 	&dev_attr_msm_fb_dfps_mode.attr,
 	&dev_attr_measured_fps.attr,
 	&dev_attr_SRGB.attr,
-
+	&dev_attr_hbm.attr,
 	&dev_attr_Adobe_RGB.attr,
-
 	&dev_attr_DCI_P3.attr,
-
+	&dev_attr_srgb.attr,
+	&dev_attr_adobe_rgb.attr,
+	&dev_attr_dci_p3.attr,
 	&dev_attr_night_mode.attr,
 	&dev_attr_adaption_mode.attr,
 	&dev_attr_oneplus_mode.attr,
@@ -2060,7 +2137,7 @@ static int mdss_fb_start_disp_thread(struct msm_fb_data_type *mfd)
 	mdss_fb_get_split(mfd);
 
 	atomic_set(&mfd->commits_pending, 0);
-	mfd->disp_thread = kthread_run(__mdss_fb_display_thread,
+	mfd->disp_thread = kthread_run_perf_critical(__mdss_fb_display_thread,
 				mfd, "mdss_fb%d", mfd->index);
 
 	if (IS_ERR(mfd->disp_thread)) {
@@ -3389,14 +3466,18 @@ static int __mdss_fb_sync_buf_done_callback(struct notifier_block *p,
 			ret = __mdss_fb_wait_for_fence_sub(sync_pt_data,
 				sync_pt_data->temp_fen, fence_cnt);
 		}
-		if (mfd->idle_time && !mod_delayed_work(system_wq,
+		if (mfd->idle_time) {
+			if (!mod_delayed_work(system_wq,
 					&mfd->idle_notify_work,
 					msecs_to_jiffies(mfd->idle_time)))
-			pr_debug("fb%d: restarted idle work\n",
-					mfd->index);
+				pr_debug("fb%d: restarted idle work\n",
+						mfd->index);
+			mfd->idle_state = MDSS_FB_IDLE_TIMER_RUNNING;
+		} else {
+			mfd->idle_state = MDSS_FB_IDLE;
+		}
 		if (ret == -ETIME)
 			ret = NOTIFY_BAD;
-		mfd->idle_state = MDSS_FB_IDLE_TIMER_RUNNING;
 		break;
 	case MDP_NOTIFY_FRAME_FLUSHED:
 		pr_debug("%s: frame flushed\n", sync_pt_data->fence_name);
@@ -4039,7 +4120,7 @@ static int __mdss_fb_display_thread(void *data)
 				mfd->index);
 
 	while (1) {
-		wait_event(mfd->commit_wait_q,
+		wait_event_interruptible(mfd->commit_wait_q,
 				(atomic_read(&mfd->commits_pending) ||
 				 kthread_should_stop()));
 
@@ -5307,6 +5388,7 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = mdss_fb_mode_switch(mfd, dsi_mode);
 		break;
 	case MSMFB_ATOMIC_COMMIT:
+		devfreq_boost_kick(DEVFREQ_MSM_CPUBW);
 		ret = mdss_fb_atomic_commit_ioctl(info, argp, file);
 		break;
 

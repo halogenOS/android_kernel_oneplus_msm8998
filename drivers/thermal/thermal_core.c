@@ -39,6 +39,7 @@
 #include <linux/kthread.h>
 #include <net/netlink.h>
 #include <net/genetlink.h>
+#include <linux/kobject.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/thermal.h>
@@ -52,6 +53,8 @@ MODULE_AUTHOR("Zhang Rui");
 MODULE_DESCRIPTION("Generic thermal management sysfs support");
 MODULE_LICENSE("GPL v2");
 
+#define THERMAL_MAX_ACTIVE	16
+
 static DEFINE_IDR(thermal_tz_idr);
 static DEFINE_IDR(thermal_cdev_idr);
 static DEFINE_MUTEX(thermal_idr_lock);
@@ -62,8 +65,12 @@ static LIST_HEAD(thermal_governor_list);
 
 static DEFINE_MUTEX(thermal_list_lock);
 static DEFINE_MUTEX(thermal_governor_lock);
+static DEFINE_MUTEX(cdev_softlink_lock);
+static DEFINE_MUTEX(tz_softlink_lock);
 
 static struct thermal_governor *def_governor;
+
+static struct workqueue_struct *thermal_passive_wq;
 
 static struct thermal_governor *__find_governor(const char *name)
 {
@@ -794,14 +801,15 @@ exit:
 	mutex_unlock(&thermal_list_lock);
 }
 
-static void thermal_zone_device_set_polling(struct thermal_zone_device *tz,
+static void thermal_zone_device_set_polling(struct workqueue_struct *queue,
+					    struct thermal_zone_device *tz,
 					    int delay)
 {
 	if (delay > 1000)
-		mod_delayed_work(system_freezable_wq, &tz->poll_queue,
+		mod_delayed_work(queue, &tz->poll_queue,
 				 round_jiffies(msecs_to_jiffies(delay)));
 	else if (delay)
-		mod_delayed_work(system_freezable_wq, &tz->poll_queue,
+		mod_delayed_work(queue, &tz->poll_queue,
 				 msecs_to_jiffies(delay));
 	else
 		cancel_delayed_work(&tz->poll_queue);
@@ -812,11 +820,14 @@ static void monitor_thermal_zone(struct thermal_zone_device *tz)
 	mutex_lock(&tz->lock);
 
 	if (tz->passive)
-		thermal_zone_device_set_polling(tz, tz->passive_delay);
+		thermal_zone_device_set_polling(thermal_passive_wq,
+						tz, tz->passive_delay);
 	else if (tz->polling_delay)
-		thermal_zone_device_set_polling(tz, tz->polling_delay);
+		thermal_zone_device_set_polling(
+				system_freezable_power_efficient_wq,
+				tz, tz->polling_delay);
 	else
-		thermal_zone_device_set_polling(tz, 0);
+		thermal_zone_device_set_polling(NULL, tz, 0);
 
 	mutex_unlock(&tz->lock);
 }
@@ -974,6 +985,13 @@ void thermal_zone_device_update(struct thermal_zone_device *tz)
 		return;
 
 	update_temperature(tz);
+
+	/*
+	 * To prevent cooling_device throttling
+	 * when tz->temperature keep initialized status.
+	 */
+	if (tz->temperature == THERMAL_TEMP_INVALID)
+		return;
 
 	for (count = 0; count < tz->trips; count++)
 		handle_thermal_trip(tz, count);
@@ -1913,8 +1931,12 @@ __thermal_cooling_device_register(struct device_node *np,
 	struct thermal_cooling_device *cdev;
 	struct thermal_zone_device *pos = NULL;
 	int result;
+	static struct kobject *cdev_softlink_kobj;
 
 	if (type && strlen(type) >= THERMAL_NAME_LENGTH)
+		return ERR_PTR(-EINVAL);
+
+	if (!strcmp(type, ""))
 		return ERR_PTR(-EINVAL);
 
 	if (!ops || !ops->get_max_state || !ops->get_cur_state ||
@@ -1947,6 +1969,18 @@ __thermal_cooling_device_register(struct device_node *np,
 		kfree(cdev);
 		return ERR_PTR(result);
 	}
+
+	mutex_lock(&cdev_softlink_lock);
+	if (cdev_softlink_kobj == NULL) {
+		cdev_softlink_kobj = kobject_create_and_add("cdev-by-name",
+						cdev->device.kobj.parent);
+	}
+	mutex_unlock(&cdev_softlink_lock);
+
+	result = sysfs_create_link(cdev_softlink_kobj,
+				&cdev->device.kobj, cdev->type);
+	if (result)
+		dev_err(&cdev->device, "Failed to create cdev_map soft link\n");
 
 	/* Add 'this' new cdev to the global cdev list */
 	mutex_lock(&thermal_list_lock);
@@ -2262,8 +2296,12 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
 	int count;
 	int passive = 0;
 	struct thermal_governor *governor;
+	static struct kobject *tz_softlink_kobj;
 
 	if (type && strlen(type) >= THERMAL_NAME_LENGTH)
+		return ERR_PTR(-EINVAL);
+
+	if (!strcmp(type, ""))
 		return ERR_PTR(-EINVAL);
 
 	if (trips > THERMAL_MAX_TRIPS || trips < 0 || mask >> trips)
@@ -2397,12 +2435,24 @@ struct thermal_zone_device *thermal_zone_device_register(const char *type,
 	/* Bind cooling devices for this zone */
 	bind_tz(tz);
 
-	INIT_DELAYED_WORK(&(tz->poll_queue), thermal_zone_device_check);
+	INIT_DEFERRABLE_WORK(&(tz->poll_queue), thermal_zone_device_check);
 
 	thermal_zone_device_reset(tz);
 	/* Update the new thermal zone and mark it as already updated. */
 	if (atomic_cmpxchg(&tz->need_update, 1, 0))
 		thermal_zone_device_update(tz);
+
+	mutex_lock(&tz_softlink_lock);
+	if (tz_softlink_kobj == NULL) {
+		tz_softlink_kobj = kobject_create_and_add("tz-by-name",
+						tz->device.kobj.parent);
+	}
+	mutex_unlock(&tz_softlink_lock);
+
+	result = sysfs_create_link(tz_softlink_kobj,
+				&tz->device.kobj, tz->type);
+	if (result)
+		dev_err(&tz->device, "Failed to create tz_map soft link\n");
 
 	return tz;
 
@@ -2460,7 +2510,7 @@ void thermal_zone_device_unregister(struct thermal_zone_device *tz)
 
 	mutex_unlock(&thermal_list_lock);
 
-	thermal_zone_device_set_polling(tz, 0);
+	thermal_zone_device_set_polling(NULL, tz, 0);
 
 	if (tz->type[0])
 		device_remove_file(&tz->device, &dev_attr_type);
@@ -2653,9 +2703,18 @@ static int __init thermal_init(void)
 {
 	int result;
 
+	thermal_passive_wq = alloc_workqueue("thermal_passive_wq",
+						WQ_HIGHPRI | WQ_UNBOUND
+						| WQ_FREEZABLE,
+						THERMAL_MAX_ACTIVE);
+	if (!thermal_passive_wq) {
+		result = -ENOMEM;
+		goto init_exit;
+	}
+
 	result = thermal_register_governors();
 	if (result)
-		goto error;
+		goto destroy_wq;
 
 	result = class_register(&thermal_class);
 	if (result)
@@ -2677,7 +2736,9 @@ unregister_class:
 	class_unregister(&thermal_class);
 unregister_governors:
 	thermal_unregister_governors();
-error:
+destroy_wq:
+	destroy_workqueue(thermal_passive_wq);
+init_exit:
 	idr_destroy(&thermal_tz_idr);
 	idr_destroy(&thermal_cdev_idr);
 	mutex_destroy(&thermal_idr_lock);
@@ -2689,6 +2750,7 @@ error:
 static void __exit thermal_exit(void)
 {
 	of_thermal_destroy_zones();
+	destroy_workqueue(thermal_passive_wq);
 	genetlink_exit();
 	class_unregister(&thermal_class);
 	thermal_unregister_governors();

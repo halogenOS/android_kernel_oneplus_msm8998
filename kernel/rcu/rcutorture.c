@@ -130,10 +130,8 @@ static struct rcu_torture __rcu *rcu_torture_current;
 static unsigned long rcu_torture_current_version;
 static struct rcu_torture rcu_tortures[10 * RCU_TORTURE_PIPE_LEN];
 static DEFINE_SPINLOCK(rcu_torture_lock);
-static DEFINE_PER_CPU(long [RCU_TORTURE_PIPE_LEN + 1],
-		      rcu_torture_count) = { 0 };
-static DEFINE_PER_CPU(long [RCU_TORTURE_PIPE_LEN + 1],
-		      rcu_torture_batch) = { 0 };
+static DEFINE_PER_CPU(long [RCU_TORTURE_PIPE_LEN + 1], rcu_torture_count) = { 0 };
+static DEFINE_PER_CPU(long [RCU_TORTURE_PIPE_LEN + 1], rcu_torture_batch) = { 0 };
 static atomic_t rcu_torture_wcount[RCU_TORTURE_PIPE_LEN + 1];
 static atomic_t n_rcu_torture_alloc;
 static atomic_t n_rcu_torture_alloc_fail;
@@ -541,10 +539,25 @@ static void srcu_torture_stats(void)
 	pr_alert("%s%s per-CPU(idx=%d):",
 		 torture_type, TORTURE_FLAG, idx);
 	for_each_possible_cpu(cpu) {
+		unsigned long l0, l1;
+		unsigned long u0, u1;
 		long c0, c1;
+		struct srcu_array *counts = per_cpu_ptr(srcu_ctlp->per_cpu_ref, cpu);
 
-		c0 = (long)per_cpu_ptr(srcu_ctlp->per_cpu_ref, cpu)->c[!idx];
-		c1 = (long)per_cpu_ptr(srcu_ctlp->per_cpu_ref, cpu)->c[idx];
+		u0 = counts->unlock_count[!idx];
+		u1 = counts->unlock_count[idx];
+
+		/*
+		 * Make sure that a lock is always counted if the corresponding
+		 * unlock is counted.
+		 */
+		smp_rmb();
+
+		l0 = counts->lock_count[!idx];
+		l1 = counts->lock_count[idx];
+
+		c0 = l0 - u0;
+		c1 = l1 - u1;
 		pr_cont(" %d(%ld,%ld)", cpu, c0, c1);
 	}
 	pr_cont("\n");

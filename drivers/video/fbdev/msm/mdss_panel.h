@@ -64,7 +64,7 @@ struct panel_id {
 
 static inline const char *mdss_panel2str(u32 panel)
 {
-	static const char const *names[] = {
+	static const char *names[] = {
 #define PANEL_NAME(n) [n ## _PANEL] = __stringify(n)
 		PANEL_NAME(MIPI_VIDEO),
 		PANEL_NAME(MIPI_CMD),
@@ -305,7 +305,8 @@ enum mdss_intf_events {
 	MDSS_EVENT_DEEP_COLOR,
 	MDSS_EVENT_DISABLE_PANEL,
 	MDSS_EVENT_UPDATE_PANEL_PPM,
-
+	MDSS_EVENT_PANEL_SET_HBM_MODE,
+	MDSS_EVENT_PANEL_GET_HBM_MODE,
 	MDSS_EVENT_PANEL_SET_SRGB_MODE,
 	MDSS_EVENT_PANEL_GET_SRGB_MODE,
 	MDSS_EVENT_PANEL_SET_ADOBE_RGB_MODE,
@@ -321,6 +322,7 @@ enum mdss_intf_events {
 	MDSS_EVENT_DSI_TIMING_DB_CTRL,
 	MDSS_EVENT_AVR_MODE,
 	MDSS_EVENT_REGISTER_CLAMP_HANDLER,
+	MDSS_EVENT_DSI_DYNAMIC_BITCLK,
 	MDSS_EVENT_MAX,
 };
 
@@ -818,12 +820,17 @@ struct mdss_panel_info {
 	int pwm_lpg_chan;
 	int pwm_period;
 	bool dynamic_fps;
+	bool dynamic_bitclk;
+	u32 *supp_bitclks;
+	u32 supp_bitclk_len;
 	bool ulps_feature_enabled;
 	bool ulps_suspend_enabled;
 	bool panel_ack_disabled;
 	bool esd_check_enabled;
 	bool allow_phy_power_off;
 	char dfps_update;
+	/* new requested bitclk before it is updated in hw */
+	int new_clk_rate;
 	/* new requested fps before it is updated in hw */
 	int new_fps;
 	/* stores initial fps after boot */

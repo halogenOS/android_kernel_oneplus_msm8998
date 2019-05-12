@@ -240,6 +240,8 @@ struct dwc3_msm {
 	struct delayed_work sdp_check;
 	bool usb_compliance_mode;
 	struct mutex suspend_resume_mutex;
+
+	enum usb_device_speed override_usb_speed;
 };
 
 #define USB_HSPHY_3P3_VOL_MIN		3050000 /* uV */
@@ -1133,7 +1135,8 @@ static void gsi_configure_ep(struct usb_ep *ep, struct usb_gsi_request *request)
 	struct dwc3_gadget_ep_cmd_params params;
 	const struct usb_endpoint_descriptor *desc = ep->desc;
 	const struct usb_ss_ep_comp_descriptor *comp_desc = ep->comp_desc;
-	u32			reg;
+	u32 reg;
+	int ret;
 
 	memset(&params, 0x00, sizeof(params));
 
@@ -1182,6 +1185,10 @@ static void gsi_configure_ep(struct usb_ep *ep, struct usb_gsi_request *request)
 
 	/* Set XferRsc Index for GSI EP */
 	if (!(dep->flags & DWC3_EP_ENABLED)) {
+		ret = dwc3_gadget_resize_tx_fifos(dwc, dep);
+		if (ret)
+			return;
+
 		memset(&params, 0x00, sizeof(params));
 		params.param0 = DWC3_DEPXFERCFG_NUM_XFER_RES(1);
 		dwc3_send_gadget_ep_cmd(dwc, dep->number,
@@ -1570,8 +1577,17 @@ static void dwc3_restart_usb_work(struct work_struct *w)
 
 	mdwc->in_restart = false;
 	/* Force reconnect only if cable is still connected */
-	if (mdwc->vbus_active)
+	if (mdwc->vbus_active) {
+		if (mdwc->override_usb_speed) {
+			dwc->maximum_speed = mdwc->override_usb_speed;
+			dwc->gadget.max_speed = dwc->maximum_speed;
+			dbg_event(0xFF, "override_usb_speed",
+					mdwc->override_usb_speed);
+			mdwc->override_usb_speed = 0;
+		}
+
 		dwc3_resume_work(&mdwc->resume_work);
+	}
 
 	dwc->err_evt_seen = false;
 	flush_delayed_work(&mdwc->sm_work);
@@ -1599,7 +1615,7 @@ static int msm_dwc3_usbdev_notify(struct notifier_block *self,
 	}
 
 	mdwc->hc_died = true;
-	queue_delayed_work(mdwc->sm_usb_wq, &mdwc->sm_work, 0);
+	queue_delayed_work(system_freezable_wq, &mdwc->sm_work, 0);
 	return 0;
 }
 
@@ -2106,6 +2122,12 @@ static int dwc3_msm_suspend(struct dwc3_msm *mdwc, bool hibernation)
 
 	/* Suspend SS PHY */
 	if (dwc->maximum_speed == USB_SPEED_SUPER) {
+		if (mdwc->in_host_mode) {
+			u32 reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
+
+			reg |= DWC3_GUSB3PIPECTL_DISRXDETU3;
+			dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
+		}
 		/* indicate phy about SS mode */
 		if (dwc3_msm_is_superspeed(mdwc))
 			mdwc->ss_phy->flags |= DEVICE_IN_SS_MODE;
@@ -2275,6 +2297,13 @@ static int dwc3_msm_resume(struct dwc3_msm *mdwc)
 		usb_phy_set_suspend(mdwc->ss_phy, 0);
 		mdwc->ss_phy->flags &= ~DEVICE_IN_SS_MODE;
 		mdwc->lpm_flags &= ~MDWC3_SS_PHY_SUSPEND;
+
+		if (mdwc->in_host_mode) {
+			u32 reg = dwc3_readl(dwc->regs, DWC3_GUSB3PIPECTL(0));
+
+			reg &= ~DWC3_GUSB3PIPECTL_DISRXDETU3;
+			dwc3_writel(dwc->regs, DWC3_GUSB3PIPECTL(0), reg);
+		}
 	}
 
 	mdwc->hs_phy->flags &= ~(PHY_HSFS_MODE | PHY_LS_MODE);
@@ -2656,6 +2685,13 @@ static int dwc3_msm_id_notifier(struct notifier_block *nb,
 	if (dwc->maximum_speed > dwc->max_hw_supp_speed)
 		dwc->maximum_speed = dwc->max_hw_supp_speed;
 
+	if (!id && mdwc->override_usb_speed) {
+		dwc->maximum_speed = mdwc->override_usb_speed;
+		dbg_event(0xFF, "override_usb_speed",
+				mdwc->override_usb_speed);
+		mdwc->override_usb_speed = 0;
+	}
+
 	if (mdwc->id_state != id) {
 		mdwc->id_state = id;
 		dbg_event(0xFF, "id_state", mdwc->id_state);
@@ -2840,14 +2876,19 @@ static ssize_t mode_store(struct device *dev, struct device_attribute *attr,
 
 static DEVICE_ATTR_RW(mode);
 
+/* This node only shows max speed supported dwc3 and it should be
+ * same as what is reported in udc/core.c max_speed node. For current
+ * operating gadget speed, query current_speed node which is implemented
+ * by udc/core.c
+ */
 static ssize_t speed_show(struct device *dev, struct device_attribute *attr,
 		char *buf)
 {
 	struct dwc3_msm *mdwc = dev_get_drvdata(dev);
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 
-	return snprintf(buf, PAGE_SIZE, "%s",
-			usb_speed_string(dwc->max_hw_supp_speed));
+	return snprintf(buf, PAGE_SIZE, "%s\n",
+			usb_speed_string(dwc->maximum_speed));
 }
 
 static ssize_t speed_store(struct device *dev, struct device_attribute *attr,
@@ -2857,14 +2898,25 @@ static ssize_t speed_store(struct device *dev, struct device_attribute *attr,
 	struct dwc3 *dwc = platform_get_drvdata(mdwc->dwc3);
 	enum usb_device_speed req_speed = USB_SPEED_UNKNOWN;
 
-	if (sysfs_streq(buf, "high"))
+	/* DEVSPD can only have values SS(0x4), HS(0x0) and FS(0x1).
+	 * per 3.20a data book. Allow only these settings. Note that,
+	 * xhci does not support full-speed only mode.
+	 */
+	if (sysfs_streq(buf, "full"))
+		req_speed = USB_SPEED_FULL;
+	else if (sysfs_streq(buf, "high"))
 		req_speed = USB_SPEED_HIGH;
 	else if (sysfs_streq(buf, "super"))
 		req_speed = USB_SPEED_SUPER;
+	else
+		return -EINVAL;
 
-	if (req_speed != USB_SPEED_UNKNOWN &&
-			req_speed != dwc->max_hw_supp_speed) {
-		dwc->maximum_speed = dwc->max_hw_supp_speed = req_speed;
+	/* restart usb only works for device mode. Perform manual cable
+	 * plug in/out for host mode restart.
+	 */
+	if (req_speed != dwc->maximum_speed &&
+			req_speed <= dwc->max_hw_supp_speed) {
+		mdwc->override_usb_speed = req_speed;
 		schedule_work(&mdwc->restart_usb_work);
 	}
 
@@ -3183,13 +3235,7 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		goto err;
 	}
 
-	ret = of_platform_populate(node, NULL, NULL, &pdev->dev);
-	if (ret) {
-		dev_err(&pdev->dev,
-				"failed to add create dwc3 core\n");
-		of_node_put(dwc3_node);
-		goto err;
-	}
+	of_platform_device_create(dwc3_node, NULL, &pdev->dev);
 
 	mdwc->dwc3 = of_find_device_by_node(dwc3_node);
 	of_node_put(dwc3_node);
@@ -3276,7 +3322,7 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 		dwc3_msm_id_notifier(&mdwc->id_nb, true, mdwc->extcon_id);
 	else if (!pval.intval) {
 		/* USB cable is not connected */
-		queue_delayed_work(mdwc->sm_usb_wq, &mdwc->sm_work, 0);
+		queue_delayed_work(system_freezable_wq, &mdwc->sm_work, 0);
 	} else {
 		if (pval.intval > 0)
 			dev_info(mdwc->dev, "charger detection in progress\n");
@@ -3308,7 +3354,6 @@ static int dwc3_msm_probe(struct platform_device *pdev)
 put_dwc3:
 	if (mdwc->bus_perf_client)
 		msm_bus_scale_unregister_client(mdwc->bus_perf_client);
-	of_platform_depopulate(&pdev->dev);
 err:
 	destroy_workqueue(mdwc->dwc3_wq);
 	return ret;
@@ -3986,7 +4031,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		/* pm_wakeup_event(mdwc->dev, DWC3_WAKEUP_SRC_TIMEOUT); */
 			if (mdwc->no_wakeup_src_in_hostmode) {
 				pm_wakeup_event(mdwc->dev,
-				DWC3_WAKEUP_SRC_TIMEOUT);
+					DWC3_WAKEUP_SRC_TIMEOUT);
 			}
 		}
 		break;
@@ -4009,7 +4054,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 		/* pm_wakeup_event(mdwc->dev, DWC3_WAKEUP_SRC_TIMEOUT); */
 			if (mdwc->no_wakeup_src_in_hostmode) {
 				pm_wakeup_event(mdwc->dev,
-				DWC3_WAKEUP_SRC_TIMEOUT);
+					DWC3_WAKEUP_SRC_TIMEOUT);
 			}
 		}
 		break;
@@ -4020,7 +4065,7 @@ static void dwc3_otg_sm_work(struct work_struct *w)
 	}
 
 	if (work)
-		queue_delayed_work(mdwc->sm_usb_wq, &mdwc->sm_work, delay);
+		queue_delayed_work(system_freezable_wq, &mdwc->sm_work, delay);
 
 ret:
 	return;

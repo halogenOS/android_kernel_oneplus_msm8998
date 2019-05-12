@@ -33,19 +33,10 @@
 #include <linux/efi.h>
 #include <linux/fb.h>
 #include <linux/sched.h>
-#include <linux/pm_qos.h>
 #include <linux/cpufreq.h>
 #include <linux/pm_wakeup.h>
 
 #include <asm/fb.h>
-
-#define LCDSPEEDUP_LITTLE_CPU_QOS_FREQ 1900800
-#define LCDSPEEDUP_BIG_CPU_QOS_FREQ    2361600
-#define LCD_QOS_TIMEOUT	250000
-#define NO_BOOST	0
-
-static struct pm_qos_request lcdspeedup_little_cpu_qos;
-static struct pm_qos_request lcdspeedup_big_cpu_qos;
 
     /*
      *  Frame buffer device initialization and setup routines
@@ -436,6 +427,9 @@ static void fb_do_show_logo(struct fb_info *info, struct fb_image *image,
 {
 	unsigned int x;
 
+	if (image->width > info->var.xres || image->height > info->var.yres)
+		return;
+
 	if (rotate == FB_ROTATE_UR) {
 		for (x = 0;
 		     x < num && image->dx + image->width <= info->var.xres;
@@ -444,7 +438,9 @@ static void fb_do_show_logo(struct fb_info *info, struct fb_image *image,
 			image->dx += image->width + 8;
 		}
 	} else if (rotate == FB_ROTATE_UD) {
-		for (x = 0; x < num; x++) {
+		u32 dx = image->dx;
+
+		for (x = 0; x < num && image->dx <= dx; x++) {
 			info->fbops->fb_imageblit(info, image);
 			image->dx -= image->width + 8;
 		}
@@ -456,7 +452,9 @@ static void fb_do_show_logo(struct fb_info *info, struct fb_image *image,
 			image->dy += image->height + 8;
 		}
 	} else if (rotate == FB_ROTATE_CCW) {
-		for (x = 0; x < num; x++) {
+		u32 dy = image->dy;
+
+		for (x = 0; x < num && image->dy <= dy; x++) {
 			info->fbops->fb_imageblit(info, image);
 			image->dy -= image->height + 8;
 		}
@@ -1708,12 +1706,12 @@ static int do_register_framebuffer(struct fb_info *fb_info)
 	return 0;
 }
 
-static int do_unregister_framebuffer(struct fb_info *fb_info)
+static int unbind_console(struct fb_info *fb_info)
 {
 	struct fb_event event;
-	int i, ret = 0;
+	int ret;
+	int i = fb_info->node;
 
-	i = fb_info->node;
 	if (i < 0 || i >= FB_MAX || registered_fb[i] != fb_info)
 		return -EINVAL;
 
@@ -1728,17 +1726,29 @@ static int do_unregister_framebuffer(struct fb_info *fb_info)
 	unlock_fb_info(fb_info);
 	console_unlock();
 
+	return ret;
+}
+
+static int __unlink_framebuffer(struct fb_info *fb_info);
+
+static int do_unregister_framebuffer(struct fb_info *fb_info)
+{
+	struct fb_event event;
+	int ret;
+
+	ret = unbind_console(fb_info);
+
 	if (ret)
 		return -EINVAL;
 
 	pm_vt_switch_unregister(fb_info->dev);
 
-	unlink_framebuffer(fb_info);
+	__unlink_framebuffer(fb_info);
 	if (fb_info->pixmap.addr &&
 	    (fb_info->pixmap.flags & FB_PIXMAP_DEFAULT))
 		kfree(fb_info->pixmap.addr);
 	fb_destroy_modelist(&fb_info->modelist);
-	registered_fb[i] = NULL;
+	registered_fb[fb_info->node] = NULL;
 	num_registered_fb--;
 	fb_cleanup_device(fb_info);
 	event.info = fb_info;
@@ -1751,7 +1761,7 @@ static int do_unregister_framebuffer(struct fb_info *fb_info)
 	return 0;
 }
 
-int unlink_framebuffer(struct fb_info *fb_info)
+static int __unlink_framebuffer(struct fb_info *fb_info)
 {
 	int i;
 
@@ -1763,6 +1773,20 @@ int unlink_framebuffer(struct fb_info *fb_info)
 		device_destroy(fb_class, MKDEV(FB_MAJOR, i));
 		fb_info->dev = NULL;
 	}
+
+	return 0;
+}
+
+int unlink_framebuffer(struct fb_info *fb_info)
+{
+	int ret;
+
+	ret = __unlink_framebuffer(fb_info);
+	if (ret)
+		return ret;
+
+	unbind_console(fb_info);
+
 	return 0;
 }
 EXPORT_SYMBOL(unlink_framebuffer);
@@ -1930,78 +1954,3 @@ int fb_new_modelist(struct fb_info *info)
 }
 
 MODULE_LICENSE("GPL");
-
-static int fb_state_change(struct notifier_block *nb,
-                unsigned long val, void *data)
-{
-	struct fb_event *evdata = data;
-	struct fb_info *info = evdata->info;
-	unsigned int blank;
-
-	if (val != FB_EVENT_BLANK &&
-		val != FB_EARLY_EVENT_BLANK)
-		return NOTIFY_OK;
-
-	if (info->node)
-		return NOTIFY_OK;
-
-	blank = *(int *)evdata->data;
-
-	switch (blank) {
-	case FB_BLANK_POWERDOWN:
-		if (val == FB_EARLY_EVENT_BLANK) {
-			pm_qos_update_request(&lcdspeedup_little_cpu_qos, MIN_CPUFREQ);
-			pm_qos_update_request(&lcdspeedup_big_cpu_qos, MIN_CPUFREQ);
-			/* add print actvie ws */
-			pm_print_active_wakeup_sources_queue(true);
-			pr_debug("::: LCD start off :::\n");
-		}
-		break;
-	case FB_BLANK_UNBLANK:
-		if (val == FB_EARLY_EVENT_BLANK) {
-			struct cpufreq_policy *policy;
-			 /* Speed up LCD on */
-			/* Fetch little cpu policy and drive the CPU towards target frequency */
-			pm_qos_update_request_timeout(
-				&lcdspeedup_little_cpu_qos, MAX_CPUFREQ,
-				LCD_QOS_TIMEOUT);
-
-			/* Fetch big cpu policy and drive big cpu towards target frequency */
-			policy = cpufreq_cpu_get(cluster1_first_cpu);
-			if (policy)  {
-				cpufreq_driver_target(policy, LCDSPEEDUP_BIG_CPU_QOS_FREQ, CPUFREQ_RELATION_H);
-				pm_qos_update_request_timeout(&lcdspeedup_big_cpu_qos, (MAX_CPUFREQ-4), LCD_QOS_TIMEOUT);
-			} else
-				return NOTIFY_OK;
-			cpufreq_cpu_put(policy);
-		}
-
-		if (val == FB_EVENT_BLANK) {
-			//Wujialong 20160314 enable sched_boost when wakeup and disable sched_boost when screen on
-			sched_set_boost(NO_BOOST);
-			/* remove print actvie ws */
-			pm_print_active_wakeup_sources_queue(false);
-			pr_debug("::: LCD is on :::\n");
-		}
-		break;
-	default:
-		break;
-	}
-
-        return NOTIFY_OK;
-}
-
-static struct notifier_block fb_block = {
-        .notifier_call = fb_state_change,
-        .priority = 1,
-};
-
-static int __init lcdscreen_speedup_init_pm_qos(void)
-{
-	fb_register_client(&fb_block);
-	pm_qos_add_request(&lcdspeedup_little_cpu_qos, PM_QOS_C0_CPUFREQ_MIN, MIN_CPUFREQ);
-	pm_qos_add_request(&lcdspeedup_big_cpu_qos, PM_QOS_C1_CPUFREQ_MIN, MIN_CPUFREQ);
-
-        return 0;
-}
-late_initcall(lcdscreen_speedup_init_pm_qos);

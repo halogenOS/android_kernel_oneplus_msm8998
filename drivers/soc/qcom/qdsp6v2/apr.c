@@ -292,11 +292,11 @@ int apr_wait_for_device_up(int dest_id)
 	if (dest_id == APR_DEST_MODEM)
 		rc = wait_event_interruptible_timeout(modem_wait,
 				    (apr_get_modem_state() == APR_SUBSYS_UP),
-				    (1 * HZ));
+				     msecs_to_jiffies(1000));
 	else if (dest_id == APR_DEST_QDSP6)
 		rc = wait_event_interruptible_timeout(dsp_wait,
 				    (apr_get_q6_state() == APR_SUBSYS_UP),
-				    (1 * HZ));
+				     msecs_to_jiffies(1000));
 	else
 		pr_err("%s: unknown dest_id %d\n", __func__, dest_id);
 	/* returns left time */
@@ -601,6 +601,12 @@ void apr_cb_func(void *buf, int len, void *priv)
 		pr_err("APR: Wrong paket size\n");
 		return;
 	}
+
+	if (hdr->pkt_size < hdr_size) {
+		pr_err("APR: Packet size less than header size\n");
+		return;
+	}
+
 	msg_type = hdr->hdr_field;
 	msg_type = (msg_type >> 0x08) & 0x0003;
 	if (msg_type >= APR_MSG_TYPE_MAX && msg_type != APR_BASIC_RSP_RESULT) {
@@ -968,10 +974,12 @@ static int __init apr_init(void)
 	if (!apr_reset_workqueue)
 		return -ENOMEM;
 
+#ifdef CONFIG_IPC_LOGGING
 	apr_pkt_ctx = ipc_log_context_create(APR_PKT_IPC_LOG_PAGE_CNT,
 						"apr", 0);
 	if (!apr_pkt_ctx)
 		pr_err("%s: Unable to create ipc log context\n", __func__);
+#endif
 
 	is_initial_modem_boot = true;
 	is_initial_adsp_boot = true;

@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,6 +19,7 @@
 #include <linux/irqreturn.h>
 #include <linux/pinctrl/consumer.h>
 #include <linux/gpio.h>
+#include <linux/pm_qos.h>
 
 #include "mdss_panel.h"
 #include "mdss_dsi_cmd.h"
@@ -586,6 +587,9 @@ struct mdss_dsi_ctrl_pdata {
 	int disp_vci_en_gpio;
 	int disp_poc_en_gpio;
 
+	struct dsi_panel_cmds hbm_on_cmds;
+	struct dsi_panel_cmds hbm_off_cmds;
+	int hbm_mode;
 
 	bool is_panel_on;
 	bool setting_mode_loaded;
@@ -639,6 +643,8 @@ struct mdss_dsi_ctrl_pdata {
 	bool update_phy_timing; /* flag to recalculate PHY timings */
 
 	bool phy_power_off;
+
+	struct pm_qos_request pm_qos_req;
 };
 
 struct dsi_status_data {
@@ -650,6 +656,8 @@ struct dsi_status_data {
 int mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
 int mdss_dsi_panel_get_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl);
 
+int mdss_dsi_panel_set_hbm_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level);
+int mdss_dsi_panel_get_hbm_mode(struct mdss_dsi_ctrl_pdata *ctrl);
 
 int mdss_dsi_panel_set_adobe_rgb_mode
 	(struct mdss_dsi_ctrl_pdata *ctrl, int level);
@@ -718,8 +726,8 @@ void disable_esd_thread(void);
 void mdss_dsi_irq_handler_config(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 
 void mdss_dsi_set_tx_power_mode(int mode, struct mdss_panel_data *pdata);
-int mdss_dsi_clk_div_config(struct mdss_panel_info *panel_info,
-			    int frame_rate);
+u64 mdss_dsi_calc_bitclk(struct mdss_panel_info *panel_info, int frame_rate);
+u32 mdss_dsi_get_pclk_rate(struct mdss_panel_info *panel_info, u64 clk_rate);
 int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata, bool update_phy);
 int mdss_dsi_link_clk_init(struct platform_device *pdev,
 		      struct mdss_dsi_ctrl_pdata *ctrl_pdata);

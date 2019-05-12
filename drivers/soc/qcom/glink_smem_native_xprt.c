@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -270,6 +270,8 @@ static void send_irq(struct edge_info *einfo)
 	einfo->readback = einfo->tx_ch_desc->write_index;
 	wmb();
 	writel_relaxed(einfo->out_irq_mask, einfo->out_irq_reg);
+	if (einfo->remote_proc_id != SMEM_SPSS)
+		writel_relaxed(0, einfo->out_irq_reg);
 	einfo->tx_irq_count++;
 }
 
@@ -446,6 +448,9 @@ static int fifo_read(struct edge_info *einfo, void *_data, int len)
 	uint32_t fifo_size = einfo->rx_fifo_size;
 	uint32_t n;
 
+	if (read_index >= fifo_size || write_index >= fifo_size)
+		return 0;
+
 	while (len) {
 		ptr = einfo->rx_fifo + read_index;
 		if (read_index <= write_index)
@@ -488,6 +493,9 @@ static uint32_t fifo_write_body(struct edge_info *einfo, const void *_data,
 	uint32_t read_index = einfo->tx_ch_desc->read_index;
 	uint32_t fifo_size = einfo->tx_fifo_size;
 	uint32_t n;
+
+	if (read_index >= fifo_size || *write_index >= fifo_size)
+		return 0;
 
 	while (len) {
 		ptr = einfo->tx_fifo + *write_index;
@@ -2443,7 +2451,7 @@ static int glink_smem_native_probe(struct platform_device *pdev)
 
 	einfo->irq_line = irq_line;
 	rc = request_irq(irq_line, irq_handler,
-			IRQF_TRIGGER_RISING | IRQF_NO_SUSPEND | IRQF_SHARED,
+			IRQF_TRIGGER_RISING | IRQF_SHARED,
 			node->name, einfo);
 	if (rc < 0) {
 		pr_err("%s: request_irq on %d failed: %d\n", __func__, irq_line,

@@ -65,7 +65,7 @@ struct mdss_hw mdss_dsi1_hw = {
 
 #define DSI_EVENT_Q_MAX	4
 
-#define DSI_BTA_EVENT_TIMEOUT (HZ / 10)
+#define DSI_BTA_EVENT_TIMEOUT (100)
 
 /* Mutex common for both the controllers */
 static struct mutex dsi_mtx;
@@ -1631,7 +1631,7 @@ int mdss_dsi_bta_status_check(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
 	wmb();
 
 	ret = wait_for_completion_killable_timeout(&ctrl_pdata->bta_comp,
-						DSI_BTA_EVENT_TIMEOUT);
+						msecs_to_jiffies(DSI_BTA_EVENT_TIMEOUT));
 	if (ret <= 0) {
 		mdss_dsi_disable_irq(ctrl_pdata, DSI_BTA_TERM);
 		pr_err("%s: DSI BTA error: %i\n", __func__, ret);
@@ -2729,6 +2729,7 @@ int mdss_dsi_cmdlist_commit(struct mdss_dsi_ctrl_pdata *ctrl, int from_mdp)
 	bool hs_req = false;
 	bool cmd_mutex_acquired = false;
 
+	pm_qos_update_request(&ctrl->pm_qos_req, 100);
 	if (from_mdp) {	/* from mdp kickoff */
 		if (!ctrl->burst_mode_enabled) {
 			mutex_lock(&ctrl->cmd_mutex);
@@ -2888,6 +2889,8 @@ need_lock:
 			mdss_dsi_cmd_stop_hs_clk_lane(ctrl);
 	}
 
+	pm_qos_update_request(&ctrl->pm_qos_req, PM_QOS_DEFAULT_VALUE);
+
 	return ret;
 }
 
@@ -2960,7 +2963,7 @@ static int dsi_event_thread(void *data)
 	spin_lock_init(&ev->event_lock);
 
 	while (1) {
-		wait_event(ev->event_q, (ev->event_pndx != ev->event_gndx));
+		wait_event_interruptible(ev->event_q, (ev->event_pndx != ev->event_gndx));
 		spin_lock_irqsave(&ev->event_lock, flag);
 		evq = &ev->todo_list[ev->event_gndx++];
 		todo = evq->todo;

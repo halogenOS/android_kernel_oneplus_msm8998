@@ -1711,8 +1711,8 @@ int ath10k_wmi_cmd_send_nowait(struct ath10k *ar, struct sk_buff *skb,
 	cmd_hdr->cmd_id = __cpu_to_le32(cmd);
 
 	memset(skb_cb, 0, sizeof(*skb_cb));
+	trace_ath10k_wmi_cmd(ar, cmd_id, skb->data, skb->len);
 	ret = ath10k_htc_send(&ar->htc, ar->wmi.eid, skb);
-	trace_ath10k_wmi_cmd(ar, cmd_id, skb->data, skb->len, ret);
 
 	if (ret)
 		goto err_pull;
@@ -1824,6 +1824,12 @@ int ath10k_wmi_cmd_send(struct ath10k *ar, struct sk_buff *skb, u32 cmd_id)
 
 	if (ret)
 		dev_kfree_skb_any(skb);
+
+	if (ret == -EAGAIN) {
+		ath10k_warn(ar, "wmi command %d timeout, restarting hardware\n",
+			    cmd_id);
+		queue_work(ar->workqueue, &ar->restart_work);
+	}
 
 	return ret;
 }
@@ -2394,9 +2400,9 @@ int ath10k_wmi_event_mgmt_rx(struct ath10k *ar, struct sk_buff *skb)
 	 * of mgmt rx.
 	 */
 	if (channel >= 1 && channel <= 14) {
-		status->band = IEEE80211_BAND_2GHZ;
+		status->band = NL80211_BAND_2GHZ;
 	} else if (channel >= 36 && channel <= 165) {
-		status->band = IEEE80211_BAND_5GHZ;
+		status->band = NL80211_BAND_5GHZ;
 	} else {
 		/* Shouldn't happen unless list of advertised channels to
 		 * mac80211 has been changed.
@@ -2406,7 +2412,7 @@ int ath10k_wmi_event_mgmt_rx(struct ath10k *ar, struct sk_buff *skb)
 		return 0;
 	}
 
-	if (phy_mode == MODE_11B && status->band == IEEE80211_BAND_5GHZ)
+	if (phy_mode == MODE_11B && status->band == NL80211_BAND_5GHZ)
 		ath10k_dbg(ar, ATH10K_DBG_MGMT, "wmi mgmt rx 11b (CCK) on 5GHz\n");
 
 	sband = &ar->mac.sbands[status->band];
@@ -2461,7 +2467,7 @@ static int freq_to_idx(struct ath10k *ar, int freq)
 	struct ieee80211_supported_band *sband;
 	int band, ch, idx = 0;
 
-	for (band = IEEE80211_BAND_2GHZ; band < IEEE80211_NUM_BANDS; band++) {
+	for (band = NL80211_BAND_2GHZ; band < NUM_NL80211_BANDS; band++) {
 		sband = ar->hw->wiphy->bands[band];
 		if (!sband)
 			continue;
@@ -4379,7 +4385,7 @@ static void ath10k_tpc_config_disp_tables(struct ath10k *ar,
 							    rate_code[i],
 							    type);
 			snprintf(buff, sizeof(buff), "%8d ", tpc[j]);
-			strncat(tpc_value, buff, strlen(buff));
+			strlcat(tpc_value, buff, sizeof(tpc_value));
 		}
 		tpc_stats->tpc_table[type].pream_idx[i] = pream_idx;
 		tpc_stats->tpc_table[type].rate_code[i] = rate_code[i];

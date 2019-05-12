@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2017, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2018, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -292,6 +292,8 @@ void ipc_log_write(void *ctxt, struct encode_context *ectxt)
 		return;
 	}
 
+	if (ilctxt->disabled)
+		return;
 	read_lock_irqsave(&context_list_lock_lha1, flags);
 	spin_lock(&ilctxt->context_lock_lhb1);
 	while (ilctxt->write_avail <= ectxt->offset)
@@ -311,7 +313,11 @@ void ipc_log_write(void *ctxt, struct encode_context *ectxt)
 		ilctxt->write_page->hdr.end_time = t_now;
 
 		ilctxt->write_page = get_next_page(ilctxt, ilctxt->write_page);
-		BUG_ON(ilctxt->write_page == NULL);
+		if (WARN_ON(ilctxt->write_page == NULL)) {
+			spin_unlock(&ilctxt->context_lock_lhb1);
+			read_unlock_irqrestore(&context_list_lock_lha1, flags);
+			return;
+		}
 		ilctxt->write_page->hdr.write_offset = 0;
 		ilctxt->write_page->hdr.start_time = t_now;
 		memcpy((ilctxt->write_page->data +
@@ -497,11 +503,14 @@ int ipc_log_string(void *ilctxt, const char *fmt, ...)
 {
 	struct encode_context ectxt;
 	int avail_size, data_size, hdr_size = sizeof(struct tsv_header);
+	struct ipc_log_context *ctxt = (struct ipc_log_context *)ilctxt;
 	va_list arg_list;
 
 	if (!ilctxt)
 		return -EINVAL;
 
+	if (ctxt->disabled)
+		return -EBUSY;
 	msg_encode_start(&ectxt, TSV_TYPE_STRING);
 	tsv_timestamp_write(&ectxt);
 	tsv_qtimer_write(&ectxt);
@@ -517,6 +526,32 @@ int ipc_log_string(void *ilctxt, const char *fmt, ...)
 	return 0;
 }
 EXPORT_SYMBOL(ipc_log_string);
+
+/*
+ * ipc_log_ctrl_all - disable/enable logging in all clients
+ *
+ * @ Data specified using format specifiers
+ */
+void ipc_log_ctrl_all(bool disable)
+{
+	struct ipc_log_context *ctxt = NULL;
+	unsigned long flags;
+
+	read_lock_irqsave(&context_list_lock_lha1, flags);
+	list_for_each_entry(ctxt, &ipc_log_context_list, list) {
+		if (disable) {
+			ipc_log_string(ctxt,
+				"LOGGING DISABLED FOR ALL CLIENTS!!\n");
+			ctxt->disabled = disable;
+		} else {
+			ctxt->disabled = disable;
+			ipc_log_string(ctxt,
+				"LOGGING ENABLED FOR ALL CLIENTS!!\n");
+		}
+	}
+	read_unlock_irqrestore(&context_list_lock_lha1, flags);
+}
+EXPORT_SYMBOL(ipc_log_ctrl_all);
 
 /**
  * ipc_log_extract - Reads and deserializes log
@@ -538,6 +573,7 @@ int ipc_log_extract(void *ctxt, char *buff, int size)
 				 struct decode_context *dctxt);
 	struct ipc_log_context *ilctxt = (struct ipc_log_context *)ctxt;
 	unsigned long flags;
+	int ret;
 
 	if (size < MAX_MSG_DECODED_SIZE)
 		return -EINVAL;
@@ -547,6 +583,11 @@ int ipc_log_extract(void *ctxt, char *buff, int size)
 	dctxt.size = size;
 	read_lock_irqsave(&context_list_lock_lha1, flags);
 	spin_lock(&ilctxt->context_lock_lhb1);
+	if (ilctxt->destroyed) {
+		ret = -EIO;
+		goto done;
+	}
+
 	while (dctxt.size >= MAX_MSG_DECODED_SIZE &&
 	       !is_nd_read_empty(ilctxt)) {
 		msg_read(ilctxt, &ectxt);
@@ -562,11 +603,17 @@ int ipc_log_extract(void *ctxt, char *buff, int size)
 		read_lock_irqsave(&context_list_lock_lha1, flags);
 		spin_lock(&ilctxt->context_lock_lhb1);
 	}
-	if ((size - dctxt.size) == 0)
-		reinit_completion(&ilctxt->read_avail);
+	ret = size - dctxt.size;
+	if (ret == 0) {
+		if (!ilctxt->destroyed)
+			reinit_completion(&ilctxt->read_avail);
+		else
+			ret = -EIO;
+	}
+done:
 	spin_unlock(&ilctxt->context_lock_lhb1);
 	read_unlock_irqrestore(&context_list_lock_lha1, flags);
-	return size - dctxt.size;
+	return ret;
 }
 EXPORT_SYMBOL(ipc_log_extract);
 
@@ -811,6 +858,8 @@ void *ipc_log_context_create(int max_num_pages,
 	ctxt->nd_read_page = ctxt->first_page;
 	ctxt->write_avail = max_num_pages * LOG_PAGE_DATA_SIZE;
 	ctxt->header_size = sizeof(struct ipc_log_page_header);
+	kref_init(&ctxt->refcount);
+	ctxt->destroyed = false;
 	create_ctx_debugfs(ctxt, mod_name);
 
 	/* set magic last to signal context init is complete */
@@ -833,6 +882,21 @@ release_ipc_log_context:
 }
 EXPORT_SYMBOL(ipc_log_context_create);
 
+void ipc_log_context_free(struct kref *kref)
+{
+	struct ipc_log_context *ilctxt = container_of(kref,
+				struct ipc_log_context, refcount);
+	struct ipc_log_page *pg = NULL;
+
+	while (!list_empty(&ilctxt->page_list)) {
+		pg = get_first_page(ilctxt);
+		list_del(&pg->hdr.list);
+		kfree(pg);
+	}
+
+	kfree(ilctxt);
+}
+
 /*
  * Destroy debug log context
  *
@@ -841,25 +905,24 @@ EXPORT_SYMBOL(ipc_log_context_create);
 int ipc_log_context_destroy(void *ctxt)
 {
 	struct ipc_log_context *ilctxt = (struct ipc_log_context *)ctxt;
-	struct ipc_log_page *pg = NULL;
 	unsigned long flags;
 
 	if (!ilctxt)
 		return 0;
 
-	while (!list_empty(&ilctxt->page_list)) {
-		pg = get_first_page(ctxt);
-		list_del(&pg->hdr.list);
-		kfree(pg);
-	}
+	debugfs_remove_recursive(ilctxt->dent);
+
+	spin_lock(&ilctxt->context_lock_lhb1);
+	ilctxt->destroyed = true;
+	complete_all(&ilctxt->read_avail);
+	spin_unlock(&ilctxt->context_lock_lhb1);
 
 	write_lock_irqsave(&context_list_lock_lha1, flags);
 	list_del(&ilctxt->list);
 	write_unlock_irqrestore(&context_list_lock_lha1, flags);
 
-	debugfs_remove_recursive(ilctxt->dent);
+	ipc_log_context_put(ilctxt);
 
-	kfree(ilctxt);
 	return 0;
 }
 EXPORT_SYMBOL(ipc_log_context_destroy);

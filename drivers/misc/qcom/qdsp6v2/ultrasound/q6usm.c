@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2016, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2016, 2019, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -33,7 +33,7 @@
 #define WRITEDONE_IDX_STATUS    0
 
 /* Standard timeout in the asynchronous ops */
-#define Q6USM_TIMEOUT_JIFFIES	(1*HZ) /* 1 sec */
+#define Q6USM_TIMEOUT_JIFFIES	1000 /* 1 sec */
 
 static DEFINE_MUTEX(session_lock);
 
@@ -104,7 +104,7 @@ static int q6usm_memory_map(phys_addr_t buf_add, int dir, uint32_t bufsz,
 
 	rc = wait_event_timeout(this_mmap.cmd_wait,
 				(atomic_read(&this_mmap.cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s: timeout. waited for memory_map\n", __func__);
@@ -142,7 +142,7 @@ int q6usm_memory_unmap(phys_addr_t buf_add, int dir, uint32_t session,
 
 	rc = wait_event_timeout(this_mmap.cmd_wait,
 				(atomic_read(&this_mmap.cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s: timeout. waited for memory_unmap\n", __func__);
@@ -507,6 +507,12 @@ static int32_t q6usm_mmapcallback(struct apr_client_data *data, void *priv)
 	uint32_t token;
 	uint32_t *payload = data->payload;
 
+	if (data->payload_size < (2 * sizeof(uint32_t))) {
+		pr_err("%s: payload has invalid size[%d]\n", __func__,
+		       data->payload_size);
+		return -EINVAL;
+	}
+
 	pr_debug("%s: ptr0[0x%x]; ptr1[0x%x]; opcode[0x%x]\n",
 		 __func__, payload[0], payload[1], data->opcode);
 	pr_debug("%s: token[0x%x]; payload_size[%d]; src[%d]; dest[%d];\n",
@@ -567,6 +573,11 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 	}
 
 	if (data->opcode == APR_BASIC_RSP_RESULT) {
+		if (data->payload_size < (2 * sizeof(uint32_t))) {
+			pr_err("%s: payload has invalid size[%d]\n", __func__,
+			       data->payload_size);
+			return -EINVAL;
+		}
 		/* status field check */
 		if (payload[1]) {
 			pr_err("%s: wrong response[%d] on cmd [%d]\n",
@@ -630,6 +641,14 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 
 		opcode = Q6USM_EVENT_READ_DONE;
 		spin_lock_irqsave(&port->dsp_lock, dsp_flags);
+		if (data->payload_size <
+		    (sizeof(uint32_t)*(READDONE_IDX_STATUS + 1))) {
+			pr_err("%s: Invalid payload size for READDONE[%d]\n",
+			       __func__, data->payload_size);
+			spin_unlock_irqrestore(&port->dsp_lock,
+					       dsp_flags);
+			return -EINVAL;
+		}
 		if (payload[READDONE_IDX_STATUS]) {
 			pr_err("%s: wrong READDONE[%d]; token[%d]\n",
 			       __func__,
@@ -675,6 +694,12 @@ static int32_t q6usm_callback(struct apr_client_data *data, void *priv)
 		struct us_port_data *port = &usc->port[IN];
 
 		opcode = Q6USM_EVENT_WRITE_DONE;
+		if (data->payload_size <
+		    (sizeof(uint32_t)*(WRITEDONE_IDX_STATUS + 1))) {
+			pr_err("%s: Invalid payload size for WRITEDONE[%d]\n",
+			       __func__, data->payload_size);
+			return -EINVAL;
+		}
 		if (payload[WRITEDONE_IDX_STATUS]) {
 			pr_err("%s: wrong WRITEDONE_IDX_STATUS[%d]\n",
 			       __func__,
@@ -820,7 +845,7 @@ int q6usm_open_read(struct us_client *usc,
 	}
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s: timeout, waited for OPEN_READ rc[%d]\n",
@@ -930,7 +955,7 @@ int q6usm_enc_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 	}
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s: timeout opcode[0x%x]\n",
@@ -1018,7 +1043,7 @@ int q6usm_dec_cfg_blk(struct us_client *usc, struct us_encdec_cfg *us_cfg)
 	}
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s: timeout opcode[0x%x]\n",
@@ -1066,7 +1091,7 @@ int q6usm_open_write(struct us_client *usc,
 	}
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s:timeout. waited for OPEN_WRITR rc[%d]\n",
@@ -1104,7 +1129,7 @@ int q6usm_run(struct us_client *usc, uint32_t flags,
 
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s: timeout. waited for run success rc[%d]\n",
@@ -1315,7 +1340,7 @@ int q6usm_cmd(struct us_client *usc, int cmd)
 		goto fail_cmd;
 	}
 	rc = wait_event_timeout(usc->cmd_wait, (atomic_read(state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
 		pr_err("%s:timeout. waited for response opcode[0x%x]\n",
@@ -1354,11 +1379,11 @@ int q6usm_set_us_detection(struct us_client *usc,
 	}
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
-		pr_err("%s: CMD_SIGNAL_DETECT_MODE: timeout=%d\n",
-		       __func__, Q6USM_TIMEOUT_JIFFIES);
+		pr_err("%s: CMD_SIGNAL_DETECT_MODE: timeout=%ld\n",
+		       __func__, msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	} else
 		rc = 0;
 
@@ -1400,11 +1425,11 @@ int q6usm_set_us_stream_param(int dir, struct us_client *usc,
 
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
-		pr_err("%s: CMD_SET_PARAM: timeout=%d\n",
-			__func__, Q6USM_TIMEOUT_JIFFIES);
+		pr_err("%s: CMD_SET_PARAM: timeout=%ld\n",
+			__func__, msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	} else
 		rc = 0;
 
@@ -1446,11 +1471,11 @@ int q6usm_get_us_stream_param(int dir, struct us_client *usc,
 
 	rc = wait_event_timeout(usc->cmd_wait,
 				(atomic_read(&usc->cmd_state) == 0),
-				Q6USM_TIMEOUT_JIFFIES);
+				 msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	if (!rc) {
 		rc = -ETIME;
-		pr_err("%s: CMD_GET_PARAM: timeout=%d\n",
-			__func__, Q6USM_TIMEOUT_JIFFIES);
+		pr_err("%s: CMD_GET_PARAM: timeout=%ld\n",
+			__func__, msecs_to_jiffies(Q6USM_TIMEOUT_JIFFIES));
 	} else
 		rc = 0;
 

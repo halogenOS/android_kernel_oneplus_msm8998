@@ -27,6 +27,17 @@
 
 #include <linux/cache.h>
 
+struct rcu_dynticks;
+static inline int rcu_dynticks_snap(struct rcu_dynticks *rdtp)
+{
+	return 0;
+}
+
+static inline bool rcu_eqs_special_set(int cpu)
+{
+	return false;  /* Never flag non-existent other CPUs! */
+}
+
 static inline unsigned long get_state_synchronize_rcu(void)
 {
 	return 0;
@@ -47,15 +58,8 @@ static inline void cond_synchronize_sched(unsigned long oldstate)
 	might_sleep();
 }
 
-static inline void rcu_barrier_bh(void)
-{
-	wait_rcu_gp(call_rcu_bh);
-}
-
-static inline void rcu_barrier_sched(void)
-{
-	wait_rcu_gp(call_rcu_sched);
-}
+extern void rcu_barrier_bh(void);
+extern void rcu_barrier_sched(void);
 
 static inline void synchronize_rcu_expedited(void)
 {
@@ -88,10 +92,11 @@ static inline void kfree_call_rcu(struct rcu_head *head,
 	call_rcu(head, func);
 }
 
-static inline void rcu_note_context_switch(void)
-{
-	rcu_sched_qs();
-}
+#define rcu_note_context_switch(preempt) \
+	do { \
+		rcu_sched_qs(); \
+		rcu_note_voluntary_context_switch_lite(current); \
+	} while (0)
 
 /*
  * Take advantage of the fact that there is only one CPU, which
@@ -181,6 +186,14 @@ static inline void rcu_irq_enter(void)
 {
 }
 
+static inline void rcu_irq_exit_irqson(void)
+{
+}
+
+static inline void rcu_irq_enter_irqson(void)
+{
+}
+
 static inline void rcu_irq_exit(void)
 {
 }
@@ -198,21 +211,14 @@ static inline void rcu_scheduler_starting(void)
 }
 #endif /* #else #ifdef CONFIG_DEBUG_LOCK_ALLOC */
 
-#if defined(CONFIG_DEBUG_LOCK_ALLOC) || defined(CONFIG_RCU_TRACE)
-
-static inline bool rcu_is_watching(void)
-{
-	return __rcu_is_watching();
-}
-
-#else /* defined(CONFIG_DEBUG_LOCK_ALLOC) || defined(CONFIG_RCU_TRACE) */
-
 static inline bool rcu_is_watching(void)
 {
 	return true;
 }
 
-#endif /* #else defined(CONFIG_DEBUG_LOCK_ALLOC) || defined(CONFIG_RCU_TRACE) */
+static inline void rcu_request_urgent_qs_task(struct task_struct *t)
+{
+}
 
 static inline void rcu_all_qs(void)
 {

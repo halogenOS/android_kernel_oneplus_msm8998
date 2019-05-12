@@ -679,6 +679,11 @@ static ssize_t devkmsg_write(struct kiocb *iocb, struct iov_iter *from)
 		}
 	}
 
+	if (strncmp("healthd", line, 7) == 0) {
+	        kfree(buf);
+		return len;
+	}
+
 	printk_emit(facility, level, NULL, 0, "%s", line);
 	kfree(buf);
 	return ret;
@@ -889,7 +894,7 @@ void log_buf_kexec_setup(void)
 #endif
 
 /* requested log_buf_len from kernel cmdline */
-static unsigned long __initdata new_log_buf_len;
+static unsigned long __init new_log_buf_len;
 
 /* we practice scaling the ring buffer by powers of 2 */
 static void __init log_buf_len_update(unsigned size)
@@ -903,7 +908,12 @@ static void __init log_buf_len_update(unsigned size)
 /* save requested log_buf_len since it's too early to process it */
 static int __init log_buf_len_setup(char *str)
 {
-	unsigned size = memparse(str, &str);
+	unsigned int size;
+
+	if (!str)
+		return -EINVAL;
+
+	size = memparse(str, &str);
 
 	log_buf_len_update(size);
 

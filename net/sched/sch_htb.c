@@ -1025,6 +1025,9 @@ static int htb_init(struct Qdisc *sch, struct nlattr *opt)
 	int err;
 	int i;
 
+	qdisc_watchdog_init(&q->watchdog, sch);
+	INIT_WORK(&q->work, htb_work_func);
+
 	if (!opt)
 		return -EINVAL;
 
@@ -1045,8 +1048,6 @@ static int htb_init(struct Qdisc *sch, struct nlattr *opt)
 	for (i = 0; i < TC_HTB_NUMPRIO; i++)
 		INIT_LIST_HEAD(q->drops + i);
 
-	qdisc_watchdog_init(&q->watchdog, sch);
-	INIT_WORK(&q->work, htb_work_func);
 	__skb_queue_head_init(&q->direct_queue);
 
 	if (tb[TCA_HTB_DIRECT_QLEN])
@@ -1338,6 +1339,7 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 	struct nlattr *tb[TCA_HTB_MAX + 1];
 	struct tc_htb_opt *hopt;
 	u64 rate64, ceil64;
+	int warn = 0;
 
 	/* extract all subattrs from opt attr */
 	if (!opt)
@@ -1491,13 +1493,11 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 		cl->quantum = min_t(u64, quantum, INT_MAX);
 
 		if (!hopt->quantum && cl->quantum < 1000) {
-			pr_warn("HTB: quantum of class %X is small. Consider r2q change.\n",
-				cl->common.classid);
+			warn = -1;
 			cl->quantum = 1000;
 		}
 		if (!hopt->quantum && cl->quantum > 200000) {
-			pr_warn("HTB: quantum of class %X is big. Consider r2q change.\n",
-				cl->common.classid);
+			warn = 1;
 			cl->quantum = 200000;
 		}
 		if (hopt->quantum)
@@ -1510,6 +1510,10 @@ static int htb_change_class(struct Qdisc *sch, u32 classid,
 	cl->cbuffer = PSCHED_TICKS2NS(hopt->cbuffer);
 
 	sch_tree_unlock(sch);
+
+	if (warn)
+		pr_warn("HTB: quantum of class %X is %s. Consider r2q change.\n",
+			    cl->common.classid, (warn == -1 ? "small" : "big"));
 
 	qdisc_class_hash_grow(sch, &q->clhash);
 

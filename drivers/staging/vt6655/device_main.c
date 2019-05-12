@@ -807,7 +807,7 @@ static int vnt_int_report_rate(struct vnt_private *priv,
 		else if (fb_option & FIFOCTL_AUTO_FB_1)
 			tx_rate = fallback_rate1[tx_rate][retry];
 
-		if (info->band == IEEE80211_BAND_5GHZ)
+		if (info->band == NL80211_BAND_5GHZ)
 			idx = tx_rate - RATE_6M;
 		else
 			idx = tx_rate;
@@ -972,8 +972,6 @@ static void vnt_interrupt_process(struct vnt_private *priv)
 		return;
 	}
 
-	MACvIntDisable(priv->PortOffset);
-
 	spin_lock_irqsave(&priv->lock, flags);
 
 	/* Read low level stats */
@@ -1062,8 +1060,6 @@ static void vnt_interrupt_process(struct vnt_private *priv)
 	}
 
 	spin_unlock_irqrestore(&priv->lock, flags);
-
-	MACvIntEnable(priv->PortOffset, IMR_MASK_VALUE);
 }
 
 static void vnt_interrupt_work(struct work_struct *work)
@@ -1073,14 +1069,17 @@ static void vnt_interrupt_work(struct work_struct *work)
 
 	if (priv->vif)
 		vnt_interrupt_process(priv);
+
+	MACvIntEnable(priv->PortOffset, IMR_MASK_VALUE);
 }
 
 static irqreturn_t vnt_interrupt(int irq,  void *arg)
 {
 	struct vnt_private *priv = arg;
 
-	if (priv->vif)
-		schedule_work(&priv->interrupt_work);
+	schedule_work(&priv->interrupt_work);
+
+	MACvIntDisable(priv->PortOffset);
 
 	return IRQ_HANDLED;
 }
@@ -1285,7 +1284,7 @@ static int vnt_config(struct ieee80211_hw *hw, u32 changed)
 	    (conf->flags & IEEE80211_CONF_OFFCHANNEL)) {
 		set_channel(priv, conf->chandef.chan);
 
-		if (conf->chandef.chan->band == IEEE80211_BAND_5GHZ)
+		if (conf->chandef.chan->band == NL80211_BAND_5GHZ)
 			bb_type = BB_TYPE_11A;
 		else
 			bb_type = BB_TYPE_11G;
