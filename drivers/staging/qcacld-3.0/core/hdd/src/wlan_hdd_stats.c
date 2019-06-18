@@ -3970,6 +3970,11 @@ static int wlan_hdd_get_peer_info(hdd_adapter_t *adapter,
 	return ret;
 }
 
+int wlan_hdd_get_station_remote(struct wiphy *wiphy,
+		struct net_device *dev,
+		const u8 *mac,
+		struct station_info *sinfo);
+
 /**
  * wlan_hdd_get_station_remote() - NL80211_CMD_GET_STATION handler for SoftAP
  * @wiphy: pointer to wiphy
@@ -3981,7 +3986,7 @@ static int wlan_hdd_get_peer_info(hdd_adapter_t *adapter,
  *
  * Return: 0 on success, otherwise error value
  */
-static int wlan_hdd_get_station_remote(struct wiphy *wiphy,
+int wlan_hdd_get_station_remote(struct wiphy *wiphy,
 		struct net_device *dev,
 		const u8 *mac,
 		struct station_info *sinfo)
@@ -4094,15 +4099,8 @@ static int __wlan_hdd_cfg80211_get_station(struct wiphy *wiphy,
 		return -EINVAL;
 	}
 
-	if (pAdapter->device_mode == QDF_SAP_MODE) {
-		if (pCfg->sap_get_peer_info) {
-			status =  wlan_hdd_get_station_remote(wiphy, dev,
-							      mac, sinfo);
-			if (!status)
-				return 0;
-		}
+	if (pAdapter->device_mode == QDF_SAP_MODE)
 		return wlan_hdd_get_sap_stats(pAdapter, sinfo);
-	}
 
 	if ((eConnectionState_Associated != pHddStaCtx->conn_info.connState) ||
 	    (0 == ssidlen)) {

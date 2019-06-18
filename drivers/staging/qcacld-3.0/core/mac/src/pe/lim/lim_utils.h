@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2019 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2018 The Linux Foundation. All rights reserved.
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -612,6 +612,7 @@ void lim_pmf_sa_query_timer_handler(void *pMacGlobal, uint32_t param);
 void lim_set_protected_bit(tpAniSirGlobal pMac,
 		tpPESession psessionEntry,
 		tSirMacAddr peer, tpSirMacMgmtHdr pMacHdr);
+void lim_pmf_comeback_timer_callback(void *context);
 #else
 static inline void lim_set_protected_bit(tpAniSirGlobal pMac,
 	tpPESession psessionEntry,
@@ -805,7 +806,9 @@ void lim_send_chan_switch_action_frame(tpAniSirGlobal mac_ctx,
  * lim_assoc_rej_add_to_rssi_based_reject_list() - Add BSSID to the rssi based
  * rejection list
  * @mac_ctx: mac ctx
- * @ap_info: bssid info to be added to reject list.
+ * @rssi_assoc_rej: rssi assoc reject attribute
+ * @bssid : BSSID of the AP
+ * @rssi : RSSI of the assoc resp
  *
  * Add BSSID to the rssi based rejection list. Also if number
  * of entries is greater than MAX_RSSI_AVOID_BSSID_LIST
@@ -814,7 +817,8 @@ void lim_send_chan_switch_action_frame(tpAniSirGlobal mac_ctx,
  * Return: void
  */
 void lim_assoc_rej_add_to_rssi_based_reject_list(tpAniSirGlobal mac_ctx,
-				struct sir_rssi_disallow_lst *ap_info);
+	tDot11fTLVrssi_assoc_rej  *rssi_assoc_rej,
+	tSirMacAddr bssid, int8_t rssi);
 
 /**
  * lim_check_if_vendor_oui_match() - Check if the given OUI match in IE buffer
