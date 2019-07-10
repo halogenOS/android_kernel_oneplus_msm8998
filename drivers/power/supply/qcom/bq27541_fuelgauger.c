@@ -46,6 +46,9 @@
 #define DEVICE_BQ27541			0
 #define DEVICE_BQ27411			1
 
+#define DEVICE_ROM_SLAVE_ADDR		0x0b
+#define DEVICE_NORMAL_SLAVE_ADDR	0x55
+
 #define DRIVER_VERSION			"1.1.0"
 /* Bq27541 standard data commands */
 #define BQ27541_REG_CNTL		0x00
@@ -148,8 +151,8 @@
 #define BQ27541_SUBCMD_CAL_MODE  0x0040
 #define BQ27541_SUBCMD_RESET     0x0041
 #define ZERO_DEGREE_CELSIUS_IN_TENTH_KELVIN   (-2731)
-#define BQ27541_INIT_DELAY_MS 1000
-#define SET_BQ_PARAM_DELAY_MS 600
+#define BQ27541_INIT_DELAY   ((HZ)*1)
+#define SET_BQ_PARAM_DELAY_MS 6000
 
 
 /* Bq27411 sub commands */
@@ -210,6 +213,7 @@ struct bq27541_device_info {
 	/* 300ms delay is needed after bq27541 is powered up
 	 * and before any successful I2C transaction
 	 */
+	struct  delayed_work		bq_reset;
 	struct  delayed_work		hw_config;
 	struct  delayed_work		modify_soc_smooth_parameter;
 	struct  delayed_work		battery_soc_work;
@@ -235,6 +239,7 @@ struct bq27541_device_info {
 	bool bq_present;
 	bool set_smoothing;
 	bool disable_calib_soc;
+	bool recovery_rom_mode;
 	unsigned long	lcd_off_time;
 	unsigned long	soc_pre_time;
 	unsigned long	soc_store_time;
@@ -255,6 +260,11 @@ struct update_pre_capacity_data {
 	int suspend_time;
 };
 static struct update_pre_capacity_data update_pre_capacity_data;
+static void op_bq_reset(void);
+static int sealed(void);
+static int seal(void);
+static int unseal(u32 key);
+
 static void bq27411_modify_soc_smooth_parameter(
 	struct bq27541_device_info *di, bool is_powerup);
 
@@ -380,7 +390,6 @@ static int bq27541_i2c_txsubcmd(u8 reg, unsigned short subcmd,
 	msg.flags = 0;
 	msg.len = 3;
 	msg.buf = data;
-
 	ret = i2c_transfer(di->client->adapter, &msg, 1);
 	if (ret < 0)
 		return -EIO;
@@ -413,7 +422,7 @@ static int bq27541_chip_config(struct bq27541_device_info *di)
 	return 0;
 }
 
-static struct bq27541_device_info *bq27541_di;
+struct bq27541_device_info *bq27541_di;
 static struct i2c_client *new_client;
 
 #define TEN_PERCENT                            10
@@ -436,6 +445,42 @@ static struct i2c_client *new_client;
 #define LOW_BATTERY_PROTECT_VOLTAGE  3250000
 #define CAPACITY_CALIBRATE_TIME_60_PERCENT     45 /* 45s */
 #define LOW_BATTERY_CAPACITY_THRESHOLD         20
+
+bool is_rom_mode(void)
+{
+	int rc = 0;
+	int flags = 0;
+
+	bq27541_di->client->addr = DEVICE_ROM_SLAVE_ADDR;
+	rc = bq27541_read(BQ27541_REG_CNTL, &flags, 0, bq27541_di);
+	bq27541_di->client->addr = DEVICE_NORMAL_SLAVE_ADDR;
+	if (rc)
+	{
+		pr_info("bq27541_rom_mode false\n");
+		return false;
+	} else {
+		pr_info("bq27541_rom_mode true\n");
+		return true;
+	}
+}
+
+bool exit_rom_mode(void)
+{
+	if (!is_rom_mode())
+		return false;
+	mutex_lock(&battery_mutex);
+	bq27541_di->client->addr = DEVICE_ROM_SLAVE_ADDR;
+	bq27541_i2c_txsubcmd(0x00, 0x0f, bq27541_di);
+	bq27541_i2c_txsubcmd(0x64, 0x0f, bq27541_di);
+	bq27541_i2c_txsubcmd(0x65, 0x00, bq27541_di);
+	bq27541_di->client->addr = DEVICE_NORMAL_SLAVE_ADDR;
+	mutex_unlock(&battery_mutex);
+	mdelay(1000);
+	if(!is_rom_mode())
+		return true;
+	else
+		return false;
+}
 
 static int get_current_time(unsigned long *now_tm_sec)
 {
@@ -727,7 +772,7 @@ out:
 		get_current_time(&di->soc_pre_time);
 		/* store when soc changed */
 		power_supply_changed(di->batt_psy);
-		pr_info("soc:%d, soc_calib:%d, VOLT:%d, current:%d\n",
+		pr_debug("soc:%d, soc_calib:%d, VOLT:%d, current:%d\n",
 		soc, soc_calib, bq27541_battery_voltage(di) / 1000,
 		bq27541_average_current(di) / 1000);
 	}
@@ -764,7 +809,7 @@ struct bq27541_device_info *di, int suspend_time_ms)
 			goto read_soc_err;
 		}
 		if (soc_pre != soc)
-			pr_err("bq27541_battery_soc = %d\n", soc);
+			pr_debug("bq27541_battery_soc = %d\n", soc);
 
 		soc_pre = soc;
 	} else {
@@ -1031,7 +1076,7 @@ static struct external_battery_gauge bq27541_batt_gauge = {
 #define LOW_BAT_SOC_UPDATE_MS 6000
 #define RESUME_SCHDULE_SOC_UPDATE_WORK_MS 60000
 
-static inline int is_usb_plugged(void)
+static int is_usb_pluged(void)
 {
 	static struct power_supply *psy;
 	union power_supply_propval ret = {0,};
@@ -1057,7 +1102,7 @@ static inline int is_usb_plugged(void)
 	return (Vbus > 2500) ? true : false;
 }
 
-static inline bool is_dash_started(void)
+static bool get_dash_started(void)
 {
 	if (bq27541_di && bq27541_di->fastchg_started)
 		return bq27541_di->fastchg_started;
@@ -1067,17 +1112,23 @@ static inline bool is_dash_started(void)
 
 static void update_battery_soc_work(struct work_struct *work)
 {
-	bool plugged, dash;
-	int vbat;
+	int schedule_time, vbat, flags, rc;
 
-	plugged = is_usb_plugged();
-	dash = is_dash_started();
-
-	if (plugged || dash) {
+	bq27541_set_allow_reading(true);
+	rc = bq27541_read(BQ27541_REG_CNTL, &flags, 0, bq27541_di);
+	bq27541_set_allow_reading(false);
+	if (rc || bq27541_di->recovery_rom_mode) {
+		rc = exit_rom_mode();
+		if (rc || bq27541_di->recovery_rom_mode) {
+			op_bq_reset();
+			bq27541_di->recovery_rom_mode = false;
+		}
+	}
+	if (is_usb_pluged() || get_dash_started()) {
 		queue_delayed_work(system_power_efficient_wq,
 				&bq27541_di->battery_soc_work,
 				msecs_to_jiffies(BATTERY_SOC_UPDATE_MS));
-		if (dash)
+		if (get_dash_started())
 			return;
 		if (bq27541_di->set_smoothing)
 			return;
@@ -1096,12 +1147,12 @@ static void update_battery_soc_work(struct work_struct *work)
 	bq27541_set_allow_reading(false);
 	if (!bq27541_di->already_modify_smooth)
 		queue_delayed_work(system_power_efficient_wq,
-		&bq27541_di->modify_soc_smooth_parameter,
-				msecs_to_jiffies(10000));
+		&bq27541_di->modify_soc_smooth_parameter, 1000);
+	schedule_time =
+		vbat < 3600 ? LOW_BAT_SOC_UPDATE_MS : BATTERY_SOC_UPDATE_MS;
 	queue_delayed_work(system_power_efficient_wq,
-		&bq27541_di->battery_soc_work,
-			msecs_to_jiffies(vbat < 3600 ?
-				LOW_BAT_SOC_UPDATE_MS : BATTERY_SOC_UPDATE_MS));
+                &bq27541_di->battery_soc_work,
+			msecs_to_jiffies(schedule_time));
 }
 
 static bool bq27541_registered;
@@ -1137,13 +1188,39 @@ static void gauge_set_cmd_addr(int device_type)
 }
 #endif
 
+static void op_bq_reset(void)
+{
+
+	if (bq27541_di->device_type == DEVICE_BQ27541)
+		return;
+	if (get_dash_started())
+		return;
+	pr_info("%s begin\n", __func__);
+	bq27541_set_allow_reading(false);
+	if (sealed()) {
+		if (!unseal(BQ27411_UNSEAL_KEY))
+			return;
+		msleep(50);
+	}
+	bq27541_i2c_txsubcmd(BQ27541_SUBCMD_CTNL_STATUS,
+						BQ27541_SUBCMD_RESET, bq27541_di);
+	usleep_range(1000, 1001);
+	if (sealed() == 0) {
+		usleep_range(1000, 1001);
+		seal();
+	}
+	mdelay(2000);
+	bq27541_set_allow_reading(true);
+	pr_info("%s end\n", __func__);
+}
+
 static void bq_modify_soc_smooth_parameter(struct work_struct *work)
 {
 	struct bq27541_device_info *di;
 
 	di = container_of(work, struct bq27541_device_info,
 			modify_soc_smooth_parameter.work);
-	if (is_dash_started())
+	if (get_dash_started())
 		return;
 	if (di->already_modify_smooth)
 		return;
@@ -1167,7 +1244,11 @@ static bool check_bat_present(struct bq27541_device_info *di)
 	di->bq_present = true;
 	return true;
 }
-
+static void op_bq_reset_work(struct work_struct *work)
+{
+	op_bq_reset();
+	bq27541_di->recovery_rom_mode = false;
+}
 static void bq27541_hw_config(struct work_struct *work)
 {
 	int ret = 0, flags = 0, type = 0, fw_ver = 0;
@@ -1178,6 +1259,7 @@ static void bq27541_hw_config(struct work_struct *work)
 	ret = bq27541_chip_config(di);
 	if (ret) {
 		pr_err("Failed to config Bq27541\n");
+		di->recovery_rom_mode = exit_rom_mode();
 		/* Add for retry when config fail */
 		di->retry_count--;
 		if (di->retry_count > 0)
@@ -1185,7 +1267,6 @@ static void bq27541_hw_config(struct work_struct *work)
                                 &di->hw_config, HZ);
 		else
 			bq27541_registered = true;
-
 		return;
 	}
 	external_battery_gauge_register(&bq27541_batt_gauge);
@@ -1218,7 +1299,7 @@ static void bq27541_hw_config(struct work_struct *work)
 	pr_info("Complete bq27541 configuration 0x%02X\n", flags);
 	queue_delayed_work(system_power_efficient_wq,
 		&di->modify_soc_smooth_parameter,
-		msecs_to_jiffies(SET_BQ_PARAM_DELAY_MS * 10));
+		SET_BQ_PARAM_DELAY_MS);
 }
 
 static int bq27541_read_i2c(u8 reg, int *rt_value, int b_single,
@@ -1383,7 +1464,7 @@ static void bq27541_parse_dt(struct bq27541_device_info *di)
 
 	di->modify_soc_smooth = of_property_read_bool(node,
 				"qcom,modify-soc-smooth");
-	pr_err("di->modify_soc_smooth=%d\n", di->modify_soc_smooth);
+	pr_debug("di->modify_soc_smooth=%d\n", di->modify_soc_smooth);
 }
 static int sealed(void)
 {
@@ -1394,8 +1475,7 @@ static int sealed(void)
 	/*bq27541_cntl_cmd(di,CONTROL_STATUS);*/
 	usleep_range(10000, 10001);
 	bq27541_read_i2c(CONTROL_STATUS, &value, 0, bq27541_di);
-
-	pr_debug(" REG_CNTL: 0x%x\n", value);
+	pr_info(" REG_CNTL: 0x%x\n", value);
 
 	if (bq27541_di->device_type == DEVICE_BQ27541)
 		return value & BIT(14);
@@ -1751,13 +1831,14 @@ write_parameter:
 			goto write_parameter;
 		}
 	}
-
 	usleep_range(1000, 1001);
 	if (sealed() == 0) {
 		usleep_range(1000, 1001);
 		seal();
 	}
 	di->already_modify_smooth = true;
+	if (di->recovery_rom_mode)
+		schedule_delayed_work(&di->bq_reset, 2000);
 	pr_err("%s end\n", __func__);
 }
 
@@ -1849,14 +1930,15 @@ static int bq27541_battery_probe(struct i2c_client *client,
 	di->t_count = 0;
 	di->lcd_is_off = false;
 	INIT_DELAYED_WORK(&di->hw_config, bq27541_hw_config);
+	INIT_DELAYED_WORK(&di->bq_reset, op_bq_reset_work);
 	INIT_DELAYED_WORK(&di->modify_soc_smooth_parameter,
 		bq_modify_soc_smooth_parameter);
 	INIT_DELAYED_WORK(&di->battery_soc_work, update_battery_soc_work);
 	queue_delayed_work(system_power_efficient_wq,
-				&di->hw_config, msecs_to_jiffies(BQ27541_INIT_DELAY_MS));
+                &di->hw_config, BQ27541_INIT_DELAY);
 	queue_delayed_work(system_power_efficient_wq,
-				&di->battery_soc_work, msecs_to_jiffies(BATTERY_SOC_UPDATE_MS * 10));
-	pr_info("probe sucdess\n");
+                &di->battery_soc_work, BATTERY_SOC_UPDATE_MS);
+	pr_debug("probe success\n");
 	check_bat_present(di);
 	return 0;
 

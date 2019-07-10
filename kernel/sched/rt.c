@@ -833,6 +833,17 @@ static int do_sched_rt_period_timer(struct rt_bandwidth *rt_b, int overrun)
 		int enqueue = 0;
 		struct rt_rq *rt_rq = sched_rt_period_rt_rq(rt_b, i);
 		struct rq *rq = rq_of_rt_rq(rt_rq);
+		int skip;
+
+		/*
+		 * When span == cpu_online_mask, taking each rq->lock
+		 * can be time-consuming. Try to avoid it when possible.
+		 */
+		raw_spin_lock(&rt_rq->rt_runtime_lock);
+		skip = !rt_rq->rt_time && !rt_rq->rt_nr_running;
+		raw_spin_unlock(&rt_rq->rt_runtime_lock);
+		if (skip)
+			continue;
 
 		raw_spin_lock(&rq->lock);
 		update_rq_clock(rq);
@@ -903,7 +914,7 @@ static void dump_throttled_rt_tasks(struct rt_rq *rt_rq)
 	int idx;
 
 	pos += snprintf(pos, sizeof(buf),
-		"sched: RT throttling activated for rt_rq %p (cpu %d)\n",
+		"sched: RT throttling activated for rt_rq %pK (cpu %d)\n",
 		rt_rq, cpu_of(rq_of_rt_rq(rt_rq)));
 
 	if (bitmap_empty(array->bitmap, MAX_RT_PRIO))
@@ -1949,6 +1960,7 @@ static struct rq *find_lock_lowest_rq(struct task_struct *task, struct rq *rq)
 				     !cpumask_test_cpu(lowest_rq->cpu,
 						       tsk_cpus_allowed(task)) ||
 				     task_running(rq, task) ||
+				     !rt_task(task) ||
 				     !task_on_rq_queued(task))) {
 
 				double_unlock_balance(rq, lowest_rq);
@@ -2039,7 +2051,7 @@ retry:
 		 * pushing.
 		 */
 		task = pick_next_pushable_task(rq);
-		if (task_cpu(next_task) == rq->cpu && task == next_task) {
+		if (task == next_task) {
 			/*
 			 * The task hasn't migrated, and is still the next
 			 * eligible task, but we failed to find a run-queue

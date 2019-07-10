@@ -300,7 +300,6 @@
 					368 134
 					384 155
 					401 178
-					419 201
 				>;
 				idle-cost-data = <
 					4 4 0 0
@@ -330,8 +329,6 @@
 					975  1375
 					996  1549
 					1016 1617
-					1021 1677
-					1024 1683
 				>;
 				idle-cost-data = <
 					10 10 0 0
@@ -357,7 +354,6 @@
 					368 48
 					384 53
 					401 59
-					419 66
 				>;
 				idle-cost-data = <
 					31 31 31 0
@@ -387,8 +383,6 @@
 					975  178
 					996  185
 					1016 200
-					1021 202
-					1024 203
 				>;
 				idle-cost-data = <
 					50 50 50 0
@@ -1677,7 +1671,6 @@
 		qcom,xprt-version = <1>;
 		qcom,fragmented-data;
 		qcom,dynamic-wakeup-source;
-		qcom,low-latency-xprt;
 	};
 
 	qcom,spcom {
@@ -1867,7 +1860,7 @@
 
 		/* PM QoS */
 		qcom,pm-qos-cpu-groups = <0x0F 0xF0>;
-		qcom,pm-qos-cpu-group-latency-us = <100 100>;
+		qcom,pm-qos-cpu-group-latency-us = <70 70>;
 		qcom,pm-qos-default-cpu = <0>;
 
 		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";

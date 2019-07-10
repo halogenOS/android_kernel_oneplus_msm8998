@@ -1242,6 +1242,7 @@ static int wlfw_msa_mem_info_send_sync_msg(void)
 	struct wlfw_msa_info_req_msg_v01 req;
 	struct wlfw_msa_info_resp_msg_v01 resp;
 	struct msg_desc req_desc, resp_desc;
+	uint64_t max_mapped_addr;
 
 	if (!penv || !penv->wlfw_clnt)
 		return -ENODEV;
@@ -1288,9 +1289,23 @@ static int wlfw_msa_mem_info_send_sync_msg(void)
 		goto out;
 	}
 
+	max_mapped_addr = penv->msa_pa + penv->msa_mem_size;
 	penv->stats.msa_info_resp++;
 	penv->nr_mem_region = resp.mem_region_info_len;
 	for (i = 0; i < resp.mem_region_info_len; i++) {
+
+		if (resp.mem_region_info[i].size > penv->msa_mem_size ||
+		    resp.mem_region_info[i].region_addr > max_mapped_addr ||
+		    resp.mem_region_info[i].region_addr < penv->msa_pa ||
+		    resp.mem_region_info[i].size +
+		    resp.mem_region_info[i].region_addr > max_mapped_addr) {
+			icnss_pr_dbg("Received out of range Addr: 0x%llx Size: 0x%x\n",
+					resp.mem_region_info[i].region_addr,
+					resp.mem_region_info[i].size);
+			ret = -EINVAL;
+			goto fail_unwind;
+		}
+
 		penv->mem_region[i].reg_addr =
 			resp.mem_region_info[i].region_addr;
 		penv->mem_region[i].size =
@@ -1305,6 +1320,8 @@ static int wlfw_msa_mem_info_send_sync_msg(void)
 
 	return 0;
 
+fail_unwind:
+	memset(&penv->mem_region[0], 0, sizeof(penv->mem_region[0]) * i);
 out:
 	penv->stats.msa_info_err++;
 	ICNSS_QMI_ASSERT();
@@ -3739,6 +3756,7 @@ out:
 	return ret;
 }
 
+#ifdef CONFIG_ICNSS_DEBUG
 static int icnss_fw_debug_show(struct seq_file *s, void *data)
 {
 	struct icnss_priv *priv = s->private;
@@ -4394,7 +4412,6 @@ static const struct file_operations icnss_regread_fops = {
 	.llseek         = seq_lseek,
 };
 
-#ifdef CONFIG_ICNSS_DEBUG
 static int icnss_debugfs_create(struct icnss_priv *priv)
 {
 	int ret = 0;
@@ -4423,32 +4440,21 @@ static int icnss_debugfs_create(struct icnss_priv *priv)
 out:
 	return ret;
 }
-#else
-static int icnss_debugfs_create(struct icnss_priv *priv)
-{
-	int ret = 0;
-	struct dentry *root_dentry;
-
-	root_dentry = debugfs_create_dir("icnss", NULL);
-
-	if (IS_ERR(root_dentry)) {
-		ret = PTR_ERR(root_dentry);
-		icnss_pr_err("Unable to create debugfs %d\n", ret);
-		return ret;
-	}
-
-	priv->root_dentry = root_dentry;
-
-	debugfs_create_file("stats", 0600, root_dentry, priv,
-			    &icnss_stats_fops);
-	return 0;
-}
-#endif
 
 static void icnss_debugfs_destroy(struct icnss_priv *priv)
 {
-	debugfs_remove_recursive(priv->root_dentry);
+        debugfs_remove_recursive(priv->root_dentry);
 }
+
+#else
+static int inline icnss_debugfs_create(struct icnss_priv *priv)
+{
+	return 0;
+}
+static void inline icnss_debugfs_destroy(struct icnss_priv *priv)
+{
+}
+#endif
 
 static int icnss_get_vbatt_info(struct icnss_priv *priv)
 {
@@ -4836,15 +4842,12 @@ static int icnss_pm_suspend_noirq(struct device *dev)
 	    !test_bit(ICNSS_DRIVER_PROBED, &priv->state))
 		goto out;
 
-	ret = priv->ops->suspend_noirq(dev);
+	priv->ops->suspend_noirq(dev);
 
 out:
-	if (ret == 0) {
-		priv->stats.pm_suspend_noirq++;
-		set_bit(ICNSS_PM_SUSPEND_NOIRQ, &priv->state);
-	} else {
-		priv->stats.pm_suspend_noirq_err++;
-	}
+	priv->stats.pm_suspend_noirq++;
+	set_bit(ICNSS_PM_SUSPEND_NOIRQ, &priv->state);
+
 	return ret;
 }
 
@@ -4865,15 +4868,12 @@ static int icnss_pm_resume_noirq(struct device *dev)
 	    !test_bit(ICNSS_DRIVER_PROBED, &priv->state))
 		goto out;
 
-	ret = priv->ops->resume_noirq(dev);
+	priv->ops->resume_noirq(dev);
 
 out:
-	if (ret == 0) {
-		priv->stats.pm_resume_noirq++;
-		clear_bit(ICNSS_PM_SUSPEND_NOIRQ, &priv->state);
-	} else {
-		priv->stats.pm_resume_noirq_err++;
-	}
+	priv->stats.pm_resume_noirq++;
+	clear_bit(ICNSS_PM_SUSPEND_NOIRQ, &priv->state);
+
 	return ret;
 }
 #endif

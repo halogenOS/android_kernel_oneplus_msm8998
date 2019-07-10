@@ -662,9 +662,6 @@ boost_write(struct cgroup_subsys_state *css, struct cftype *cft,
 	unsigned threshold_idx;
 	int boost_pct;
 
-	if (!strcmp(css->cgroup->kn->name, "top-app"))
-		boost = 1;
-
 	if (boost < -100 || boost > 100)
 		return -EINVAL;
 	boost_pct = boost;
@@ -694,16 +691,50 @@ boost_write(struct cgroup_subsys_state *css, struct cftype *cft,
 	return 0;
 }
 
+#ifdef CONFIG_STUNE_ASSIST
+static int boost_write_wrapper(struct cgroup_subsys_state *css,
+			struct cftype *cft, s64 boost)
+{
+	if (!memcmp(current->comm, "init", sizeof("init")) ||
+		!memcmp(current->comm, "NodeLooperThrea", sizeof("NodeLooperThrea")) ||
+		!memcmp(current->comm, "power@", sizeof("power@")))
+		return 0;
+
+	boost_write(css, NULL, boost);
+
+	return 0;
+}
+
+static int prefer_idle_write_wrapper(struct cgroup_subsys_state *css,
+			struct cftype *cft, u64 prefer_idle)
+{
+	if (!memcmp(current->comm, "init", sizeof("init")))
+		return 0;
+
+	prefer_idle_write(css, NULL, prefer_idle);
+
+	return 0;
+}
+#endif
+
 static struct cftype files[] = {
 	{
 		.name = "boost",
 		.read_s64 = boost_read,
+#ifdef CONFIG_STUNE_ASSIST
+		.write_s64 = boost_write_wrapper,
+#else
 		.write_s64 = boost_write,
+#endif
 	},
 	{
 		.name = "prefer_idle",
 		.read_u64 = prefer_idle_read,
+#ifdef CONFIG_STUNE_ASSIST
+		.write_u64 = prefer_idle_write_wrapper,
+#else
 		.write_u64 = prefer_idle_write,
+#endif
 	},
 	{ }	/* terminate */
 };
@@ -730,22 +761,21 @@ schedtune_boostgroup_init(struct schedtune *st, int idx)
 static void write_default_values(struct cgroup_subsys_state *css)
 {
 	u8 i;
-	char cg_name[11];
-	static const int boost_values[4] = { 0, 1, 0, 0 };
-	static const bool prefer_idle_values[4] = { 0, 1, 1, 0 };
-	static const char *stune_groups[] =
-	{ "/", "top-app", "foreground", "background" };
+	struct groups_data {
+		char *name;
+		int boost;
+		bool prefer_idle;
+	};
 
-	/* Get the name of a group that was parsed */
-	cgroup_name(css->cgroup, cg_name, sizeof(cg_name));
+	struct groups_data groups[3] = {
+		{ "top-app",	1, 1 },
+		{ "foreground", 0, 1 },
+		{ "background", 0, 0 }};
 
-	for (i = 0; i < ARRAY_SIZE(stune_groups); i++) {
-		/* Look it up in the array and set values */
-		if (!strcmp(cg_name, stune_groups[i])) {
-			boost_write(css, NULL, boost_values[i]);
-			prefer_idle_write(css, NULL, prefer_idle_values[i]);
-			pr_info("%s: setting %s to %i and %i\n",
-			__func__, stune_groups[i], boost_values[i], prefer_idle_values[i]);
+	for (i = 0; i < ARRAY_SIZE(groups); i++) {
+		if (!strcmp(css->cgroup->kn->name, groups[i].name)) {
+			boost_write(css, NULL, groups[i].boost);
+			prefer_idle_write(css, NULL, groups[i].prefer_idle);
 		}
 	}
 }
@@ -766,18 +796,13 @@ schedtune_css_alloc(struct cgroup_subsys_state *parent_css)
 		return ERR_PTR(-ENOMEM);
 	}
 
-	/* Allow only a limited number of boosting groups */
+	for (idx = 1; idx < BOOSTGROUPS_COUNT; ++idx) {
+		if (!allocated_group[idx])
+			break;
 #ifdef CONFIG_STUNE_ASSIST
-	for (idx = 0; idx < BOOSTGROUPS_COUNT; ++idx) {
-		if (!allocated_group[idx])
-			break;
 		write_default_values(&allocated_group[idx]->css);
-	}
-#else
-	for (idx = 1; idx < BOOSTGROUPS_COUNT; ++idx)
-		if (!allocated_group[idx])
-			break;
 #endif
+	}
 	if (idx == BOOSTGROUPS_COUNT) {
 		pr_err("Trying to create more than %d SchedTune boosting groups\n",
 		       BOOSTGROUPS_COUNT);

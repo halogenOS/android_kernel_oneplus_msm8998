@@ -16,3 +16,6 @@ ext4-$(CONFIG_EXT4_FS_ENCRYPTION)	+= crypto_policy.o crypto.o \
 		crypto_key.o crypto_fname.o
 
 ext4-$(CONFIG_EXT4_FS_ICE_ENCRYPTION)	+= ext4_ice.o
+
+CFLAGS_crypto_fname.o			+= -Wframe-larger-than=8192
+CFLAGS_extents.o			+= -Wframe-larger-than=8192

@@ -32,6 +32,7 @@
 #include <linux/blk_types.h>
 #include <linux/workqueue.h>
 #include <linux/percpu-rwsem.h>
+#include <linux/selinux.h>
 
 #include <asm/byteorder.h>
 #include <uapi/linux/fs.h>
@@ -142,6 +143,9 @@ typedef void (dax_iodone_t)(struct buffer_head *bh_map, int uptodate);
 #define FMODE_CAN_READ          ((__force fmode_t)0x20000)
 /* Has write method(s) */
 #define FMODE_CAN_WRITE         ((__force fmode_t)0x40000)
+
+/* File is stream-like */
+#define FMODE_STREAM		((__force fmode_t)0x200000)
 
 /* File was opened by fanotify and shouldn't generate fanotify events */
 #define FMODE_NONOTIFY		((__force fmode_t)0x4000000)
@@ -631,7 +635,9 @@ struct inode {
 	struct address_space	*i_mapping;
 
 #ifdef CONFIG_SECURITY
+#ifndef CONFIG_SECURITY_SELINUX
 	void			*i_security;
+#endif
 #endif
 
 	/* Stat data, not accessed from path walking */
@@ -714,6 +720,13 @@ struct inode {
 	struct fscrypt_info	*i_crypt_info;
 #endif
 	void			*i_private; /* fs or device private pointer */
+#ifdef CONFIG_SECURITY_SELINUX
+	/*
+	 * This needs to be at the end so its size won't cause the rest of the
+	 * struct to be broken across cachelines, thereby wrecking performance.
+	 */
+	struct inode_security_struct i_security[1];
+#endif
 };
 
 static inline unsigned int i_blocksize(const struct inode *node)
@@ -928,7 +941,9 @@ struct file {
 
 	u64			f_version;
 #ifdef CONFIG_SECURITY
+#ifndef CONFIG_SECURITY_SELINUX
 	void			*f_security;
+#endif
 #endif
 	/* needed for tty driver, and maybe others */
 	void			*private_data;
@@ -943,6 +958,14 @@ struct file {
 #ifdef CONFIG_FILE_TABLE_DEBUG
 	struct hlist_node f_hash;
 #endif /* #ifdef CONFIG_FILE_TABLE_DEBUG */
+
+#ifdef CONFIG_SECURITY_SELINUX
+	/*
+	 * This needs to be at the end so its size won't cause the rest of the
+	 * struct to be broken across cachelines, thereby wrecking performance.
+	 */
+	struct file_security_struct f_security[1];
+#endif
 } __attribute__((aligned(4)));	/* lest something weird decides that 2 is OK */
 
 struct file_handle {
@@ -2772,6 +2795,7 @@ extern loff_t fixed_size_llseek(struct file *file, loff_t offset,
 		int whence, loff_t size);
 extern int generic_file_open(struct inode * inode, struct file * filp);
 extern int nonseekable_open(struct inode * inode, struct file * filp);
+extern int stream_open(struct inode * inode, struct file * filp);
 
 #ifdef CONFIG_BLOCK
 typedef void (dio_submit_t)(int rw, struct bio *bio, struct inode *inode,

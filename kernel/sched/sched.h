@@ -33,10 +33,8 @@ extern long calc_load_fold_active(struct rq *this_rq);
 
 #ifdef CONFIG_SMP
 extern void update_cpu_load_active(struct rq *this_rq);
-extern void check_for_migration(struct rq *rq, struct task_struct *p);
 #else
 static inline void update_cpu_load_active(struct rq *this_rq) { }
-static inline void check_for_migration(struct rq *rq, struct task_struct *p) { }
 #endif
 
 /*
@@ -254,7 +252,12 @@ struct task_group {
 	unsigned long shares;
 
 #ifdef	CONFIG_SMP
-	atomic_long_t load_avg;
+	/*
+	 * load_avg can be heavily contended at clock tick time, so put
+	 * it in its own cacheline separated from the fields above which
+	 * will also be accessed at each tick.
+	 */
+	atomic_long_t load_avg ____cacheline_aligned;
 #endif
 #endif
 
@@ -550,6 +553,9 @@ struct root_domain {
 
 	/* Indicate more than one runnable task for any CPU */
 	bool overload;
+
+	/* Indicate one or more cpus over-utilized (tipping point) */
+	bool overutilized;
 
 	/*
 	 * The bit corresponding to a CPU gets set here if such CPU has more
@@ -916,8 +922,8 @@ static inline struct sched_domain *lowest_flag_domain(int cpu, int flag)
 DECLARE_PER_CPU(struct sched_domain *, sd_llc);
 DECLARE_PER_CPU(int, sd_llc_size);
 DECLARE_PER_CPU(int, sd_llc_id);
-DECLARE_PER_CPU(struct sched_domain_shared *, sd_llc_shared);
 DECLARE_PER_CPU(struct sched_domain *, sd_numa);
+DECLARE_PER_CPU(struct sched_domain *, sd_busy);
 DECLARE_PER_CPU(struct sched_domain *, sd_asym);
 DECLARE_PER_CPU(struct sched_domain *, sd_ea);
 DECLARE_PER_CPU(struct sched_domain *, sd_scs);
@@ -933,6 +939,10 @@ struct sched_group_capacity {
 	unsigned long min_capacity; /* Min per-CPU capacity in group */
 	unsigned long next_update;
 	int imbalance; /* XXX unrelated to capacity but shared group state */
+	/*
+	 * Number of busy cpus in this group.
+	 */
+	atomic_t nr_busy_cpus;
 
 	unsigned long cpumask[0]; /* iteration mask */
 };
@@ -1096,7 +1106,6 @@ extern struct static_key sched_feat_keys[__SCHED_FEAT_NR];
 #endif /* SCHED_DEBUG && HAVE_JUMP_LABEL */
 
 extern struct static_key_false sched_numa_balancing;
-extern struct static_key_false sched_schedstats;
 
 static inline u64 global_rt_period(void)
 {
@@ -1220,7 +1229,7 @@ extern const u32 sched_prio_to_wmult[40];
  *
  * ENQUEUE_HEAD      - place at front of runqueue (tail if not specified)
  * ENQUEUE_REPLENISH - CBS (replenish runtime and postpone deadline)
- * ENQUEUE_MIGRATED  - the task was migrated during wakeup
+ * ENQUEUE_WAKING    - sched_class::task_waking was called
  *
  */
 
@@ -1236,9 +1245,9 @@ extern const u32 sched_prio_to_wmult[40];
 #define ENQUEUE_HEAD		0x08
 #define ENQUEUE_REPLENISH	0x10
 #ifdef CONFIG_SMP
-#define ENQUEUE_MIGRATED	0x20
+#define ENQUEUE_WAKING		0x20
 #else
-#define ENQUEUE_MIGRATED	0x00
+#define ENQUEUE_WAKING		0x00
 #endif
 #define ENQUEUE_WAKEUP_NEW	0x40
 
@@ -1271,6 +1280,7 @@ struct sched_class {
 			       int subling_count_hint);
 	void (*migrate_task_rq)(struct task_struct *p);
 
+	void (*task_waking) (struct task_struct *task);
 	void (*task_woken) (struct rq *this_rq, struct task_struct *task);
 
 	void (*set_cpus_allowed)(struct task_struct *p,

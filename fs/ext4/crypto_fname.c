@@ -68,7 +68,8 @@ static int ext4_fname_encrypt(struct inode *inode,
 	char iv[EXT4_CRYPTO_BLOCK_SIZE];
 	struct scatterlist src_sg, dst_sg;
 	int padding = 4 << (ci->ci_flags & EXT4_POLICY_FLAGS_PAD_MASK);
-	char *workbuf, buf[32], *alloc_buf = NULL;
+	char *workbuf, *alloc_buf = NULL;
+	char buf[SZ_4K] __aligned(8);
 	unsigned lim = max_name_len(inode);
 
 	if (iname->len <= 0 || iname->len > lim)
@@ -282,9 +283,13 @@ int ext4_fname_crypto_alloc_buffer(struct inode *inode,
 		olen = EXT4_FNAME_CRYPTO_DIGEST_SIZE*2;
 	/* Allocated buffer can hold one more character to null-terminate the
 	 * string */
-	crypto_str->name = kmalloc(olen+1, GFP_NOFS);
-	if (!(crypto_str->name))
-		return -ENOMEM;
+	if (olen + 1 == sizeof(crypto_str->default_name)) {
+		crypto_str->name = crypto_str->default_name;
+	} else {
+		crypto_str->name = kmalloc(olen+1, GFP_NOFS);
+		if (!(crypto_str->name))
+			return -ENOMEM;
+	}
 	return 0;
 }
 
@@ -297,7 +302,8 @@ void ext4_fname_crypto_free_buffer(struct ext4_str *crypto_str)
 {
 	if (!crypto_str)
 		return;
-	kfree(crypto_str->name);
+	if (crypto_str->name != crypto_str->default_name)
+		kfree(crypto_str->name);
 	crypto_str->name = NULL;
 }
 
@@ -451,15 +457,13 @@ int ext4_fname_setup_filename(struct inode *dir, const struct qstr *iname,
 	}
 	return 0;
 errout:
-	kfree(fname->crypto_buf.name);
-	fname->crypto_buf.name = NULL;
+	ext4_fname_crypto_free_buffer(&fname->crypto_buf);
 	return ret;
 }
 
 void ext4_fname_free_filename(struct ext4_filename *fname)
 {
-	kfree(fname->crypto_buf.name);
-	fname->crypto_buf.name = NULL;
+	ext4_fname_crypto_free_buffer(&fname->crypto_buf);
 	fname->usr_fname = NULL;
 	fname->disk_name.name = NULL;
 }

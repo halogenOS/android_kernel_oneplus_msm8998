@@ -54,6 +54,7 @@
 #include <linux/kthread.h>
 #include <linux/kernel.h>
 #include <linux/syscalls.h>
+#include <linux/slab.h>
 
 #include <linux/audit.h>
 
@@ -132,12 +133,7 @@ static int audit_net_id;
 /* Hash for inode-based rules */
 struct list_head audit_inode_hash[AUDIT_INODE_BUCKETS];
 
-/* The audit_freelist is a list of pre-allocated audit buffers (if more
- * than AUDIT_MAXFREE are in use, the audit buffer is freed instead of
- * being placed on the freelist). */
-static DEFINE_SPINLOCK(audit_freelist_lock);
-static int	   audit_freelist_count;
-static LIST_HEAD(audit_freelist);
+static struct kmem_cache *audit_buffer_cache;
 
 static struct sk_buff_head audit_skb_queue;
 /* queue of skbs to send to auditd when/if it comes back */
@@ -165,17 +161,12 @@ DEFINE_MUTEX(audit_cmd_mutex);
  * should be at least that large. */
 #define AUDIT_BUFSIZ 1024
 
-/* AUDIT_MAXFREE is the number of empty audit_buffers we keep on the
- * audit_freelist.  Doing so eliminates many kmalloc/kfree calls. */
-#define AUDIT_MAXFREE  (2*NR_CPUS)
-
 /* The audit_buffer is used when formatting an audit record.  The caller
  * locks briefly to get the record off the freelist or to allocate the
  * buffer, and locks briefly to send the buffer to the netlink layer or
  * to place it on a transmit queue.  Multiple audit_buffers can be in
  * use simultaneously. */
 struct audit_buffer {
-	struct list_head     list;
 	struct sk_buff       *skb;	/* formatted skb ready to send */
 	struct audit_context *ctx;	/* NULL or associated context */
 	gfp_t		     gfp_mask;
@@ -508,8 +499,7 @@ static void flush_hold_queue(void)
 	 * if auditd just disappeared but we
 	 * dequeued an skb we need to drop ref
 	 */
-	if (skb)
-		consume_skb(skb);
+	consume_skb(skb);
 }
 
 static int kauditd_thread(void *dummy)
@@ -883,8 +873,11 @@ static int audit_receive_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 				return -EACCES;
 			if (audit_enabled != AUDIT_OFF)
 				audit_log_config_change("audit_pid", new_pid, audit_pid, 1);
+			if (audit_sock)
+				sock_put(audit_sock);
 			audit_pid = new_pid;
 			audit_nlk_portid = NETLINK_CB(skb).portid;
+			sock_hold(skb->sk);
 			audit_sock = skb->sk;
 		}
 		if (s.mask & AUDIT_STATUS_RATE_LIMIT) {
@@ -1154,10 +1147,15 @@ static void __net_exit audit_net_exit(struct net *net)
 {
 	struct audit_net *aunet = net_generic(net, audit_net_id);
 	struct sock *sock = aunet->nlsk;
+	mutex_lock(&audit_cmd_mutex);
 	if (sock == audit_sock) {
-		audit_pid = 0;
+		if (audit_sock)
+			sock_put(audit_sock);
 		audit_sock = NULL;
+		audit_pid = 0;
+		audit_nlk_portid = 0;
 	}
+	mutex_unlock(&audit_cmd_mutex);
 
 	RCU_INIT_POINTER(aunet->nlsk, NULL);
 	synchronize_net();
@@ -1178,6 +1176,10 @@ static int __init audit_init(void)
 
 	if (audit_initialized == AUDIT_DISABLED)
 		return 0;
+
+	audit_buffer_cache = kmem_cache_create("audit_buffer",
+					       sizeof(struct audit_buffer),
+					       0, SLAB_PANIC, NULL);
 
 	pr_info("initializing netlink subsys (%s)\n",
 		audit_default ? "enabled" : "disabled");
@@ -1234,62 +1236,33 @@ __setup("audit_backlog_limit=", audit_backlog_limit_set);
 
 static void audit_buffer_free(struct audit_buffer *ab)
 {
-	unsigned long flags;
-
 	if (!ab)
 		return;
 
-	if (ab->skb)
-		kfree_skb(ab->skb);
-
-	spin_lock_irqsave(&audit_freelist_lock, flags);
-	if (audit_freelist_count > AUDIT_MAXFREE)
-		kfree(ab);
-	else {
-		audit_freelist_count++;
-		list_add(&ab->list, &audit_freelist);
-	}
-	spin_unlock_irqrestore(&audit_freelist_lock, flags);
+	kfree_skb(ab->skb);
+	kmem_cache_free(audit_buffer_cache, ab);
 }
 
-static struct audit_buffer * audit_buffer_alloc(struct audit_context *ctx,
-						gfp_t gfp_mask, int type)
+static struct audit_buffer *audit_buffer_alloc(struct audit_context *ctx,
+					       gfp_t gfp_mask, int type)
 {
-	unsigned long flags;
-	struct audit_buffer *ab = NULL;
-	struct nlmsghdr *nlh;
+	struct audit_buffer *ab;
 
-	spin_lock_irqsave(&audit_freelist_lock, flags);
-	if (!list_empty(&audit_freelist)) {
-		ab = list_entry(audit_freelist.next,
-				struct audit_buffer, list);
-		list_del(&ab->list);
-		--audit_freelist_count;
-	}
-	spin_unlock_irqrestore(&audit_freelist_lock, flags);
-
-	if (!ab) {
-		ab = kmalloc(sizeof(*ab), gfp_mask);
-		if (!ab)
-			goto err;
-	}
-
-	ab->ctx = ctx;
-	ab->gfp_mask = gfp_mask;
+	ab = kmem_cache_alloc(audit_buffer_cache, gfp_mask);
+	if (!ab)
+		return NULL;
 
 	ab->skb = nlmsg_new(AUDIT_BUFSIZ, gfp_mask);
 	if (!ab->skb)
 		goto err;
+	if (!nlmsg_put(ab->skb, 0, 0, type, 0, 0))
+		goto err;
 
-	nlh = nlmsg_put(ab->skb, 0, 0, type, 0, 0);
-	if (!nlh)
-		goto out_kfree_skb;
+	ab->ctx = ctx;
+	ab->gfp_mask = gfp_mask;
 
 	return ab;
 
-out_kfree_skb:
-	kfree_skb(ab->skb);
-	ab->skb = NULL;
 err:
 	audit_buffer_free(ab);
 	return NULL;

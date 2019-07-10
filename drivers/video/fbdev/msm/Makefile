@@ -20,7 +20,6 @@ mdss-mdp-objs += mdss_mdp_cdm.o
 mdss-mdp-objs += mdss_smmu.o
 mdss-mdp-objs += mdss_mdp_wfd.o
 obj-$(CONFIG_FB_MSM_MDSS) += mdss-mdp.o
-obj-$(CONFIG_FB_MSM_MDSS) += mdss_mdp_debug.o
 
 mdss-mdp-objs += mdss_mdp_pp_v1_7.o
 mdss-mdp-objs += mdss_mdp_pp_v3.o
@@ -28,7 +27,7 @@ mdss-mdp-objs += mdss_mdp_pp_common.o
 mdss-mdp-objs += mdss_mdp_pp_stub.o
 
 ifeq ($(CONFIG_FB_MSM_MDSS),y)
-obj-$(CONFIG_DEBUG_FS) += mdss_debug.o mdss_debug_xlog.o
+obj-$(CONFIG_DEBUG_FS) += mdss_mdp_debug.o mdss_debug.o mdss_debug_xlog.o
 endif
 
 mdss-dsi-objs := mdss_dsi.o mdss_dsi_host.o mdss_dsi_cmd.o mdss_dsi_status.o
@@ -67,7 +66,6 @@ obj-$(CONFIG_FB_MSM_QPIC) += mdss-qpic.o
 obj-$(CONFIG_FB_MSM_QPIC_ILI_QVGA_PANEL) += qpic_panel_ili_qvga.o
 
 obj-$(CONFIG_FB_MSM_MDSS) += mdss_fb.o mdss_util.o
-obj-$(CONFIG_LIVE_DISPLAY) += mdss_livedisplay.o
 obj-$(CONFIG_FB_MSM_MDSS_KCAL_CTRL) += mdss_mdp_kcal_ctrl.o
 obj-$(CONFIG_COMPAT) += mdss_compat_utils.o
 
@@ -76,4 +74,3 @@ subdir-ccflags-y += \
 	-Wno-header-guard \
 	-Wno-parentheses-equality \
 	-Wno-duplicate-decl-specifier
-
