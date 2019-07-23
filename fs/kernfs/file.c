@@ -39,6 +39,15 @@ struct kernfs_open_node {
 	struct list_head	files; /* goes through kernfs_open_file.list */
 };
 
+static struct kmem_cache *kmem_open_node_pool;
+static struct kmem_cache *kmem_open_file_pool;
+
+void __init init_kernfs_file_pool(void)
+{
+	kmem_open_node_pool = KMEM_CACHE(kernfs_open_node, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
+	kmem_open_file_pool = KMEM_CACHE(kernfs_open_file, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
+}
+
 /*
  * kernfs_notify() may be called from any context and bounces notifications
  * through a work item.  To minimize space overhead in kernfs_node, the
@@ -272,7 +281,6 @@ static ssize_t kernfs_fop_write(struct file *file, const char __user *user_buf,
 {
 	struct kernfs_open_file *of = kernfs_of(file);
 	const struct kernfs_ops *ops;
-	char buf_onstack[SZ_4K + 1] __aligned(8);
 	ssize_t len;
 	char *buf;
 
@@ -285,15 +293,10 @@ static ssize_t kernfs_fop_write(struct file *file, const char __user *user_buf,
 	}
 
 	buf = of->prealloc_buf;
-	if (!buf) {
-		if (len < ARRAY_SIZE(buf_onstack)) {
-			buf = buf_onstack;
-		} else {
-			buf = kmalloc(len + 1, GFP_KERNEL);
-			if (!buf)
-				return -ENOMEM;
-		}
-	}
+	if (!buf)
+		buf = kmalloc(len + 1, GFP_KERNEL);
+	if (!buf)
+		return -ENOMEM;
 
 	/*
 	 * @of->mutex nests outside active ref and is used both to ensure that
@@ -326,7 +329,7 @@ out_unlock:
 	kernfs_put_active(of->kn);
 	mutex_unlock(&of->mutex);
 out_free:
-	if (buf != of->prealloc_buf && buf != buf_onstack)
+	if (buf != of->prealloc_buf)
 		kfree(buf);
 	return len;
 }
@@ -565,12 +568,13 @@ static int kernfs_get_open_node(struct kernfs_node *kn,
 	mutex_unlock(&kernfs_open_file_mutex);
 
 	if (on) {
-		kfree(new_on);
+		if (new_on)
+			kmem_cache_free(kmem_open_node_pool, new_on);
 		return 0;
 	}
 
 	/* not there, initialize a new one and retry */
-	new_on = kmalloc(sizeof(*new_on), GFP_KERNEL);
+	new_on = kmem_cache_alloc(kmem_open_node_pool, GFP_KERNEL);
 	if (!new_on)
 		return -ENOMEM;
 
@@ -612,7 +616,8 @@ static void kernfs_put_open_node(struct kernfs_node *kn,
 	spin_unlock_irqrestore(&kernfs_open_node_lock, flags);
 	mutex_unlock(&kernfs_open_file_mutex);
 
-	kfree(on);
+	if (on)
+		kmem_cache_free(kmem_open_node_pool, on);
 }
 
 static int kernfs_fop_open(struct inode *inode, struct file *file)
@@ -646,7 +651,7 @@ static int kernfs_fop_open(struct inode *inode, struct file *file)
 
 	/* allocate a kernfs_open_file for the file */
 	error = -ENOMEM;
-	of = kzalloc(sizeof(struct kernfs_open_file), GFP_KERNEL);
+	of = kmem_cache_zalloc(kmem_open_file_pool, GFP_KERNEL);
 	if (!of)
 		goto err_out;
 
@@ -707,7 +712,8 @@ static int kernfs_fop_open(struct inode *inode, struct file *file)
 	if (error)
 		goto err_free;
 
-	((struct seq_file *)file->private_data)->private = of;
+	of->seq_file = file->private_data;
+	of->seq_file->private = of;
 
 	/* seq_file clears PWRITE unconditionally, restore it if WRITE */
 	if (file->f_mode & FMODE_WRITE)
@@ -716,20 +722,49 @@ static int kernfs_fop_open(struct inode *inode, struct file *file)
 	/* make sure we have open node struct */
 	error = kernfs_get_open_node(kn, of);
 	if (error)
-		goto err_close;
+		goto err_seq_release;
+
+	if (ops->open) {
+		/* nobody has access to @of yet, skip @of->mutex */
+		error = ops->open(of);
+		if (error)
+			goto err_put_node;
+	}
 
 	/* open succeeded, put active references */
 	kernfs_put_active(kn);
 	return 0;
 
-err_close:
+err_put_node:
+	kernfs_put_open_node(kn, of);
+err_seq_release:
 	seq_release(inode, file);
 err_free:
 	kfree(of->prealloc_buf);
-	kfree(of);
+	kmem_cache_free(kmem_open_file_pool, of);
 err_out:
 	kernfs_put_active(kn);
 	return error;
+}
+
+/* used from release/drain to ensure that ->release() is called exactly once */
+static void kernfs_release_file(struct kernfs_node *kn,
+				struct kernfs_open_file *of)
+{
+	if (!(kn->flags & KERNFS_HAS_RELEASE))
+		return;
+
+	mutex_lock(&of->mutex);
+	if (!of->released) {
+		/*
+		 * A file is never detached without being released and we
+		 * need to be able to release files which are deactivated
+		 * and being drained.  Don't use kernfs_ops().
+		 */
+		kn->attr.ops->release(of);
+		of->released = true;
+	}
+	mutex_unlock(&of->mutex);
 }
 
 static int kernfs_fop_release(struct inode *inode, struct file *filp)
@@ -737,20 +772,22 @@ static int kernfs_fop_release(struct inode *inode, struct file *filp)
 	struct kernfs_node *kn = filp->f_path.dentry->d_fsdata;
 	struct kernfs_open_file *of = kernfs_of(filp);
 
+	kernfs_release_file(kn, of);
 	kernfs_put_open_node(kn, of);
 	seq_release(inode, filp);
 	kfree(of->prealloc_buf);
-	kfree(of);
+	if (of)
+		kmem_cache_free(kmem_open_file_pool, of);
 
 	return 0;
 }
 
-void kernfs_unmap_bin_file(struct kernfs_node *kn)
+void kernfs_drain_open_files(struct kernfs_node *kn)
 {
 	struct kernfs_open_node *on;
 	struct kernfs_open_file *of;
 
-	if (!(kn->flags & KERNFS_HAS_MMAP))
+	if (!(kn->flags & (KERNFS_HAS_MMAP | KERNFS_HAS_RELEASE)))
 		return;
 
 	spin_lock_irq(&kernfs_open_node_lock);
@@ -762,10 +799,16 @@ void kernfs_unmap_bin_file(struct kernfs_node *kn)
 		return;
 
 	mutex_lock(&kernfs_open_file_mutex);
+
 	list_for_each_entry(of, &on->files, list) {
 		struct inode *inode = file_inode(of->file);
-		unmap_mapping_range(inode->i_mapping, 0, 0, 1);
+
+		if (kn->flags & KERNFS_HAS_MMAP)
+			unmap_mapping_range(inode->i_mapping, 0, 0, 1);
+
+		kernfs_release_file(kn, of);
 	}
+
 	mutex_unlock(&kernfs_open_file_mutex);
 
 	kernfs_put_open_node(kn, NULL);
@@ -963,6 +1006,8 @@ struct kernfs_node *__kernfs_create_file(struct kernfs_node *parent,
 		kn->flags |= KERNFS_HAS_SEQ_SHOW;
 	if (ops->mmap)
 		kn->flags |= KERNFS_HAS_MMAP;
+	if (ops->release)
+		kn->flags |= KERNFS_HAS_RELEASE;
 
 	rc = kernfs_add_one(kn);
 	if (rc) {

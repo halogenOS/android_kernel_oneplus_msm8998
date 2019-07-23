@@ -36,14 +36,25 @@ static void __init init_irq_default_affinity(void)
 #endif
 
 #ifdef CONFIG_SMP
-static int alloc_masks(struct irq_desc *desc, gfp_t gfp, int node)
+static int alloc_masks(struct irq_desc *desc, int node)
 {
 	if (!zalloc_cpumask_var_node(&desc->irq_common_data.affinity,
-				     gfp, node))
+				     GFP_KERNEL, node))
 		return -ENOMEM;
 
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
+	if (!zalloc_cpumask_var_node(&desc->irq_common_data.effective_affinity,
+				     GFP_KERNEL, node)) {
+		free_cpumask_var(desc->irq_common_data.affinity);
+		return -ENOMEM;
+	}
+#endif
+
 #ifdef CONFIG_GENERIC_PENDING_IRQ
-	if (!zalloc_cpumask_var_node(&desc->pending_mask, gfp, node)) {
+	if (!zalloc_cpumask_var_node(&desc->pending_mask, GFP_KERNEL, node)) {
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
+		free_cpumask_var(desc->irq_common_data.effective_affinity);
+#endif
 		free_cpumask_var(desc->irq_common_data.affinity);
 		return -ENOMEM;
 	}
@@ -64,7 +75,7 @@ static void desc_smp_init(struct irq_desc *desc, int node)
 
 #else
 static inline int
-alloc_masks(struct irq_desc *desc, gfp_t gfp, int node) { return 0; }
+alloc_masks(struct irq_desc *desc, int node) { return 0; }
 static inline void desc_smp_init(struct irq_desc *desc, int node) { }
 #endif
 
@@ -126,6 +137,9 @@ static void free_masks(struct irq_desc *desc)
 	free_cpumask_var(desc->pending_mask);
 #endif
 	free_cpumask_var(desc->irq_common_data.affinity);
+#ifdef CONFIG_GENERIC_IRQ_EFFECTIVE_AFF_MASK
+	free_cpumask_var(desc->irq_common_data.effective_affinity);
+#endif
 }
 #else
 static inline void free_masks(struct irq_desc *desc) { }
@@ -144,9 +158,8 @@ void irq_unlock_sparse(void)
 static struct irq_desc *alloc_desc(int irq, int node, struct module *owner)
 {
 	struct irq_desc *desc;
-	gfp_t gfp = GFP_KERNEL;
 
-	desc = kzalloc_node(sizeof(*desc), gfp, node);
+	desc = kzalloc_node(sizeof(*desc), GFP_KERNEL, node);
 	if (!desc)
 		return NULL;
 	/* allocate based on nr_cpu_ids */
@@ -154,7 +167,7 @@ static struct irq_desc *alloc_desc(int irq, int node, struct module *owner)
 	if (!desc->kstat_irqs)
 		goto err_desc;
 
-	if (alloc_masks(desc, gfp, node))
+	if (alloc_masks(desc, node))
 		goto err_kstat;
 
 	raw_spin_lock_init(&desc->lock);
@@ -183,9 +196,7 @@ static void free_desc(unsigned int irq)
 	 * sparse tree we can free it. Access in proc will fail to
 	 * lookup the descriptor.
 	 */
-	mutex_lock(&sparse_irq_lock);
 	delete_irq_desc(irq);
-	mutex_unlock(&sparse_irq_lock);
 
 	free_masks(desc);
 	free_percpu(desc->kstat_irqs);
@@ -202,19 +213,14 @@ static int alloc_descs(unsigned int start, unsigned int cnt, int node,
 		desc = alloc_desc(start + i, node, owner);
 		if (!desc)
 			goto err;
-		mutex_lock(&sparse_irq_lock);
 		irq_insert_desc(start + i, desc);
-		mutex_unlock(&sparse_irq_lock);
 	}
+	bitmap_set(allocated_irqs, start, cnt);
 	return start;
 
 err:
 	for (i--; i >= 0; i--)
 		free_desc(start + i);
-
-	mutex_lock(&sparse_irq_lock);
-	bitmap_clear(allocated_irqs, start, cnt);
-	mutex_unlock(&sparse_irq_lock);
 	return -ENOMEM;
 }
 
@@ -278,7 +284,7 @@ int __init early_irq_init(void)
 
 	for (i = 0; i < count; i++) {
 		desc[i].kstat_irqs = alloc_percpu(unsigned int);
-		alloc_masks(&desc[i], GFP_KERNEL, node);
+		alloc_masks(&desc[i], node);
 		raw_spin_lock_init(&desc[i].lock);
 		lockdep_set_class(&desc[i].lock, &irq_desc_lock_class);
 		desc_set_defaults(i, &desc[i], node, NULL);
@@ -312,6 +318,7 @@ static inline int alloc_descs(unsigned int start, unsigned int cnt, int node,
 
 		desc->owner = owner;
 	}
+	bitmap_set(allocated_irqs, start, cnt);
 	return start;
 }
 
@@ -407,10 +414,10 @@ void irq_free_descs(unsigned int from, unsigned int cnt)
 	if (from >= nr_irqs || (from + cnt) > nr_irqs)
 		return;
 
+	mutex_lock(&sparse_irq_lock);
 	for (i = 0; i < cnt; i++)
 		free_desc(from + i);
 
-	mutex_lock(&sparse_irq_lock);
 	bitmap_clear(allocated_irqs, from, cnt);
 	mutex_unlock(&sparse_irq_lock);
 }
@@ -454,19 +461,15 @@ __irq_alloc_descs(int irq, unsigned int from, unsigned int cnt, int node,
 					   from, cnt, 0);
 	ret = -EEXIST;
 	if (irq >=0 && start != irq)
-		goto err;
+		goto unlock;
 
 	if (start + cnt > nr_irqs) {
 		ret = irq_expand_nr_irqs(start + cnt);
 		if (ret)
-			goto err;
+			goto unlock;
 	}
-
-	bitmap_set(allocated_irqs, start, cnt);
-	mutex_unlock(&sparse_irq_lock);
-	return alloc_descs(start, cnt, node, owner);
-
-err:
+	ret = alloc_descs(start, cnt, node, owner);
+unlock:
 	mutex_unlock(&sparse_irq_lock);
 	return ret;
 }

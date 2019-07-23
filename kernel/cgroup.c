@@ -59,8 +59,6 @@
 #include <linux/delay.h>
 #include <linux/cpuset.h>
 #include <linux/atomic.h>
-#include <linux/binfmts.h>
-#include <linux/cpu_input_boost.h>
 
 /*
  * pidlists linger the following amount before being destroyed.  The goal
@@ -586,6 +584,9 @@ struct cgrp_cset_link {
 	struct list_head	cgrp_link;
 };
 
+static struct kmem_cache *cgrp_cset_pool;
+static struct kmem_cache *cgrp_cset_link_pool;
+
 /*
  * The default css_set - used by init and its children prior to any
  * hierarchies being mounted. It contains a pointer to the root state
@@ -755,6 +756,13 @@ static unsigned long css_set_hash(struct cgroup_subsys_state *css[])
 	return key;
 }
 
+static void __free_cset_rcu(struct rcu_head *head)
+{
+	struct css_set *cset = container_of(head, struct css_set, rcu_head);
+
+	kmem_cache_free(cgrp_cset_pool, cset);
+}
+
 static void put_css_set_locked(struct css_set *cset)
 {
 	struct cgrp_cset_link *link, *tmp_link;
@@ -779,10 +787,10 @@ static void put_css_set_locked(struct css_set *cset)
 		list_del(&link->cgrp_link);
 		if (cgroup_parent(link->cgrp))
 			cgroup_put(link->cgrp);
-		kfree(link);
+		kmem_cache_free(cgrp_cset_link_pool, link);
 	}
 
-	kfree_rcu(cset, rcu_head);
+	call_rcu(&cset->rcu_head, __free_cset_rcu);
 }
 
 static void put_css_set(struct css_set *cset)
@@ -938,7 +946,7 @@ static void free_cgrp_cset_links(struct list_head *links_to_free)
 
 	list_for_each_entry_safe(link, tmp_link, links_to_free, cset_link) {
 		list_del(&link->cset_link);
-		kfree(link);
+		kmem_cache_free(cgrp_cset_link_pool, link);
 	}
 }
 
@@ -958,7 +966,7 @@ static int allocate_cgrp_cset_links(int count, struct list_head *tmp_links)
 	INIT_LIST_HEAD(tmp_links);
 
 	for (i = 0; i < count; i++) {
-		link = kzalloc(sizeof(*link), GFP_KERNEL);
+		link = kmem_cache_zalloc(cgrp_cset_link_pool, GFP_KERNEL);
 		if (!link) {
 			free_cgrp_cset_links(tmp_links);
 			return -ENOMEM;
@@ -1031,13 +1039,13 @@ static struct css_set *find_css_set(struct css_set *old_cset,
 	if (cset)
 		return cset;
 
-	cset = kzalloc(sizeof(*cset), GFP_KERNEL);
+	cset = kmem_cache_zalloc(cgrp_cset_pool, GFP_KERNEL);
 	if (!cset)
 		return NULL;
 
 	/* Allocate all the cgrp_cset_link objects that we'll need */
 	if (allocate_cgrp_cset_links(cgroup_root_count, &tmp_links) < 0) {
-		kfree(cset);
+		kmem_cache_free(cgrp_cset_pool, cset);
 		return NULL;
 	}
 
@@ -1149,7 +1157,7 @@ static void cgroup_destroy_root(struct cgroup_root *root)
 	list_for_each_entry_safe(link, tmp_link, &cgrp->cset_links, cset_link) {
 		list_del(&link->cset_link);
 		list_del(&link->cgrp_link);
-		kfree(link);
+		kmem_cache_free(cgrp_cset_link_pool, link);
 	}
 
 	spin_unlock_irq(&css_set_lock);
@@ -2776,11 +2784,6 @@ static ssize_t __cgroup_procs_write(struct kernfs_open_file *of, char *buf,
 	ret = cgroup_procs_write_permission(tsk, cgrp, of);
 	if (!ret)
 		ret = cgroup_attach_task(cgrp, tsk, threadgroup);
-
-	/* This covers boosting for app launches and app transitions */
-	if (!ret && !threadgroup && !strcmp(of->kn->parent->name, "top-app") &&
-	    task_is_zygote(tsk->parent))
-		cpu_input_boost_kick_max(1000);
 
 	put_task_struct(tsk);
 	goto out_unlock_threadgroup;
@@ -5346,6 +5349,9 @@ int __init cgroup_init(void)
 	struct cgroup_subsys *ss;
 	unsigned long key;
 	int ssid;
+
+	cgrp_cset_pool = KMEM_CACHE(css_set, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
+	cgrp_cset_link_pool = KMEM_CACHE(cgrp_cset_link, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
 
 	BUG_ON(percpu_init_rwsem(&cgroup_threadgroup_rwsem));
 	BUG_ON(cgroup_init_cftypes(NULL, cgroup_dfl_base_files));

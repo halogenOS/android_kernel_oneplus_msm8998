@@ -1531,6 +1531,7 @@
 		qcom,irq-mask = <0x1>;
 		interrupts = <0 168 1>;
 		label = "rpm";
+		cpu-affinity = <1 2>;
 	};
 
 	qcom,glink-mailbox-xprt-spss@1d05008 {
@@ -1671,6 +1672,7 @@
 		qcom,xprt-version = <1>;
 		qcom,fragmented-data;
 		qcom,dynamic-wakeup-source;
+		qcom,low-latency-xprt;
 	};
 
 	qcom,spcom {
@@ -1860,7 +1862,7 @@
 
 		/* PM QoS */
 		qcom,pm-qos-cpu-groups = <0x0F 0xF0>;
-		qcom,pm-qos-cpu-group-latency-us = <70 70>;
+		qcom,pm-qos-cpu-group-latency-us = <100 100>;
 		qcom,pm-qos-default-cpu = <0>;
 
 		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";

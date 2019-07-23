@@ -36,6 +36,8 @@ struct nqx_platform_data {
 	unsigned int firm_gpio;
 	unsigned int ese_gpio;
 	const char *clk_src_name;
+	/* NFC_CLK pin voting state */
+	bool clk_pin_voting;
 };
 
 static const struct of_device_id msm_match_table[] = {
@@ -484,9 +486,11 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 			gpio_set_value(nqx_dev->en_gpio, 0);
 			usleep_range(10000, 10100);
 		}
-		r = nqx_clock_deselect(nqx_dev);
-		if (r < 0)
-			dev_err(&nqx_dev->client->dev, "unable to disable clock\n");
+		if (nqx_dev->pdata->clk_pin_voting) {
+			r = nqx_clock_deselect(nqx_dev);
+			if (r < 0)
+				dev_err(&nqx_dev->client->dev, "unable to disable clock\n");
+		}
 		nqx_dev->nfc_ven_enabled = false;
 	} else if (arg == 1) {
 		nqx_enable_irq(nqx_dev);
@@ -499,9 +503,11 @@ int nfc_ioctl_power_states(struct file *filp, unsigned long arg)
 		}
 		gpio_set_value(nqx_dev->en_gpio, 1);
 		usleep_range(10000, 10100);
-		r = nqx_clock_select(nqx_dev);
-		if (r < 0)
-			dev_err(&nqx_dev->client->dev, "unable to enable clock\n");
+		if (nqx_dev->pdata->clk_pin_voting) {
+			r = nqx_clock_select(nqx_dev);
+			if (r < 0)
+				dev_err(&nqx_dev->client->dev, "unable to enable clock\n");
+		}
 		nqx_dev->nfc_ven_enabled = true;
 	} else if (arg == 2) {
 		/*
@@ -642,6 +648,7 @@ static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 {
 	int ret = 0;
 
+	int gpio_retry_count = 0;
 	unsigned char raw_nci_reset_cmd[] =  {0x20, 0x00, 0x01, 0x00};
 	unsigned char raw_nci_init_cmd[] =   {0x20, 0x01, 0x00};
 	unsigned char nci_init_rsp[28];
@@ -649,7 +656,11 @@ static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 	unsigned char init_rsp_len = 0;
 	unsigned int enable_gpio = nqx_dev->en_gpio;
 
+reset_enable_gpio:
 	/* making sure that the NFCC starts in a clean state. */
+	gpio_set_value(enable_gpio, 1);/* HPD : Enable*/
+	/* hardware dependent delay */
+	usleep_range(10000, 10100);
 	gpio_set_value(enable_gpio, 0);/* ULPM: Disable */
 	/* hardware dependent delay */
 	usleep_range(10000, 10100);
@@ -665,8 +676,12 @@ static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 		"%s: - i2c_master_send Error\n", __func__);
 		goto err_nfcc_hw_check;
 	}
-	/* hardware dependent delay */
-	msleep(30);
+	nqx_enable_irq(nqx_dev);
+	ret = wait_event_interruptible(nqx_dev->read_wq, !nqx_dev->irq_enabled);
+	if (ret < 0) {
+		nqx_disable_irq(nqx_dev);
+		goto err_nfcc_hw_check;
+	}
 
 	/* Read Response of RESET command */
 	ret = i2c_master_recv(client, nci_reset_rsp,
@@ -674,6 +689,9 @@ static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 	if (ret < 0) {
 		dev_err(&client->dev,
 		"%s: - i2c_master_recv Error\n", __func__);
+		gpio_retry_count = gpio_retry_count + 1;
+		if (gpio_retry_count < MAX_RETRY_COUNT)
+			goto reset_enable_gpio;
 		goto err_nfcc_hw_check;
 	}
 	ret = nqx_standby_write(nqx_dev, raw_nci_init_cmd,
@@ -683,8 +701,13 @@ static int nfcc_hw_check(struct i2c_client *client, struct nqx_dev *nqx_dev)
 		"%s: - i2c_master_send Error\n", __func__);
 		goto err_nfcc_core_init_fail;
 	}
-	/* hardware dependent delay */
-	msleep(30);
+	nqx_enable_irq(nqx_dev);
+	ret = wait_event_interruptible(nqx_dev->read_wq, !nqx_dev->irq_enabled);
+	if (ret < 0) {
+		nqx_disable_irq(nqx_dev);
+		goto err_nfcc_hw_check;
+	}
+
 	/* Read Response of INIT command */
 	ret = i2c_master_recv(client, nci_init_rsp,
 		sizeof(nci_init_rsp));
@@ -834,12 +857,13 @@ static int nfc_parse_dt(struct device *dev, struct nqx_platform_data *pdata)
 		pdata->ese_gpio = -EINVAL;
 	}
 
-	r = of_property_read_string(np, "qcom,clk-src", &pdata->clk_src_name);
+	if (of_property_read_string(np, "qcom,clk-src", &pdata->clk_src_name))
+		pdata->clk_pin_voting = false;
+	else
+		pdata->clk_pin_voting = true;
 
 	pdata->clkreq_gpio = of_get_named_gpio(np, "qcom,nq-clkreq", 0);
 
-	if (r)
-		return -EINVAL;
 	return r;
 }
 

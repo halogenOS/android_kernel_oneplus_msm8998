@@ -79,7 +79,6 @@
 #include <linux/sysctl.h>
 #include <linux/kcov.h>
 #include <linux/cpufreq_times.h>
-#include <linux/cpu_input_boost.h>
 #include <linux/devfreq_boost.h>
 
 #include <asm/pgtable.h>
@@ -1407,7 +1406,7 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 		goto bad_fork_cleanup_count;
 
 	delayacct_tsk_init(p);	/* Must remain after dup_task_struct() */
-	p->flags &= ~(PF_SUPERPRIV | PF_WQ_WORKER);
+	p->flags &= ~(PF_SUPERPRIV | PF_WQ_WORKER | PF_IDLE);
 	p->flags |= PF_FORKNOEXEC;
 	INIT_LIST_HEAD(&p->children);
 	INIT_LIST_HEAD(&p->sibling);
@@ -1790,7 +1789,6 @@ long _do_fork(unsigned long clone_flags,
 
 	/* Boost CPU to the max for 50 ms when userspace launches an app */
 	if (task_is_zygote(current)) {
-		cpu_input_boost_kick_max(50);
 		devfreq_boost_kick_max(DEVFREQ_MSM_CPUBW, 50);
 	}
 
