@@ -73,6 +73,22 @@ config FILE_LOCKING
           for filesystems like NFS and for the flock() system
           call. Disabling this option saves about 11k.
 
+config FS_SYSCTL_PROTECTED_SYMLINKS
+    bool "Enable sysctl protected symlinks"
+    default n
+
+config FS_SYSCTL_PROTECTED_HARDLINKS
+    bool "Enable sysctl protected hardlinks"
+    default n
+
+config FS_SYSCTL_PROTECTED_FIFOS
+    int "Enable sysctl protected fifos"
+    default 0
+
+config FS_SYSCTL_PROTECTED_REGULAR
+    int "Enable sysctl protected regular files"
+    default 0
+
 source "fs/crypto/Kconfig"
 
 source "fs/notify/Kconfig"
