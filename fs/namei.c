@@ -966,10 +966,29 @@ static inline void put_link(struct nameidata *nd)
 		path_put(&last->link);
 }
 
-int sysctl_protected_symlinks __read_mostly = 0;
-int sysctl_protected_hardlinks __read_mostly = 0;
-int sysctl_protected_fifos __read_mostly;
-int sysctl_protected_regular __read_mostly;
+int sysctl_protected_symlinks __read_mostly
+#ifdef CONFIG_FS_SYSCTL_PROTECTED_SYMLINKS
+    = CONFIG_FS_SYSCTL_PROTECTED_SYMLINKS
+#endif
+;
+
+int sysctl_protected_hardlinks __read_mostly
+#ifdef CONFIG_FS_SYSCTL_PROTECTED_HARDLINKS
+    = CONFIG_FS_SYSCTL_PROTECTED_HARDLINKS
+#endif
+;
+
+int sysctl_protected_fifos __read_mostly
+#ifdef CONFIG_FS_SYSCTL_PROTECTED_FIFOS
+    = CONFIG_FS_SYSCTL_PROTECTED_FIFOS
+#endif
+;
+
+int sysctl_protected_regular __read_mostly
+#ifdef CONFIG_FS_SYSCTL_PROTECTED_REGULAR
+    = CONFIG_FS_SYSCTL_PROTECTED_REGULAR
+#endif
+;
 
 /**
  * may_follow_link - Check symlink following for unsafe situations
