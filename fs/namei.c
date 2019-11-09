@@ -882,8 +882,17 @@ static inline void put_link(struct nameidata *nd)
 		path_put(&last->link);
 }
 
-int sysctl_protected_symlinks __read_mostly = 0;
-int sysctl_protected_hardlinks __read_mostly = 0;
+int sysctl_protected_symlinks __read_mostly
+#ifdef CONFIG_FS_SYSCTL_PROTECTED_SYMLINKS
+    = CONFIG_FS_SYSCTL_PROTECTED_SYMLINKS
+#endif
+;
+
+int sysctl_protected_hardlinks __read_mostly
+#ifdef CONFIG_FS_SYSCTL_PROTECTED_HARDLINKS
+    = CONFIG_FS_SYSCTL_PROTECTED_HARDLINKS
+#endif
+;
 
 /**
  * may_follow_link - Check symlink following for unsafe situations
