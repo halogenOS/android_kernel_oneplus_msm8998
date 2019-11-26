@@ -166,4 +166,5 @@ extern enum cnss_cc_src icnss_get_cc_source(void);
 extern void cnss_set_fw_version(u32 version);
 
 extern void icnss_block_shutdown(bool status);
+extern bool icnss_is_pdr(void);
 #endif /* _ICNSS_WLAN_H_ */
