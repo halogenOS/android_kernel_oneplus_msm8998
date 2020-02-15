@@ -227,10 +227,8 @@ static int qce_dma_map_sg(struct device *dev, struct scatterlist *sg, int nents,
 {
 	int i;
 
-	for (i = 0; i < nents; ++i) {
+	for_each_sg(sg, sg, nents, i)
 		dma_map_sg(dev, sg, 1, direction);
-		sg = sg_next(sg);
-	}
 
 	return nents;
 }
@@ -240,10 +238,8 @@ static int qce_dma_unmap_sg(struct device *dev, struct scatterlist *sg,
 {
 	int i;
 
-	for (i = 0; i < nents; ++i) {
+	for_each_sg(sg, sg, nents, i)
 		dma_unmap_sg(dev, sg, 1, direction);
-		sg = sg_next(sg);
-	}
 
 	return nents;
 }
@@ -4678,7 +4674,7 @@ again:
 			pce_dev->intr_cadence = 0;
 			atomic_set(&pce_dev->bunch_cmd_seq, 0);
 			atomic_set(&pce_dev->last_intr_seq, 0);
-			pce_dev->cadence_flag = ~pce_dev->cadence_flag;
+			pce_dev->cadence_flag = !pce_dev->cadence_flag;
 		}
 	}
 
@@ -5927,8 +5923,7 @@ static int setup_dummy_req(struct qce_device *pce_dev)
 	int len = DUMMY_REQ_DATA_LEN;
 
 	memcpy(pce_dev->dummyreq_in_buf, input, len);
-	sg_set_buf(&pce_dev->dummyreq.sg, pce_dev->dummyreq_in_buf, len);
-	sg_mark_end(&pce_dev->dummyreq.sg);
+	sg_init_one(&pce_dev->dummyreq.sg, pce_dev->dummyreq_in_buf, len);
 
 	pce_dev->dummyreq.sreq.alg = QCE_HASH_SHA1;
 	pce_dev->dummyreq.sreq.qce_cb = qce_dummy_complete;
