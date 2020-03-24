@@ -26,7 +26,7 @@
 		stdout-path = "display0";
 
 		// Without "clk_ignore_unused" in cmdline the kernel panics during late init
-		bootargs = "earlycon clk_ignore_unused";
+		bootargs = "earlycon clk_ignore_unused pd_ignore_unused";
 
 		/*
 		 * hack: Use framebuffer setup by the bootloader for simplefb.
