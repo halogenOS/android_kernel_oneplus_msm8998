@@ -26,3 +26,21 @@
 &rmi4_f12 {
 	touchscreen-y-mm = <137>;
 };
+
+// Disable all display panel related nodes until there is a proper driver to
+// test for the Samsung S6E3FC1 found on the 5T
+&mdss {
+	status = "disabled";
+};
+
+&mdss_mdp {
+	status = "disabled";
+};
+
+&dsi0_phy {
+	status = "disabled";
+};
+
+&dsi0 {
+	status = "disabled";
+};
