@@ -1,5 +1,9 @@
 /*
+<<<<<<< HEAD
  * Copyright (c) 2014-2017 The Linux Foundation. All rights reserved.
+=======
+ * Copyright (c) 2014-2018 The Linux Foundation. All rights reserved.
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
  *
  * Permission to use, copy, modify, and/or distribute this software for
  * any purpose with or without fee is hereby granted, provided that the
@@ -21,13 +25,21 @@
  *
  * This source file contains linux specific definitions for QDF event APIs
  * The APIs mentioned in this file are used for initializing, setting,
+<<<<<<< HEAD
  * resetting, destroying an event and waiting on an occurance of an event
+=======
+ * resetting, destroying an event and waiting on an occurrence of an event
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
  * among multiple events.
  */
 
 /* Include Files */
 #include "qdf_event.h"
+<<<<<<< HEAD
 #include <linux/export.h>
+=======
+#include "qdf_mc_timer.h"
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 #include <qdf_module.h>
 
 struct qdf_evt_node {
@@ -59,6 +71,7 @@ static qdf_spinlock_t qdf_wait_event_lock;
  */
 QDF_STATUS qdf_event_create(qdf_event_t *event)
 {
+<<<<<<< HEAD
 	/* check for null pointer */
 	if (NULL == event) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
@@ -74,6 +87,16 @@ QDF_STATUS qdf_event_create(qdf_event_t *event)
 		QDF_ASSERT(0);
 		return QDF_STATUS_E_BUSY;
 	}
+=======
+	QDF_BUG(event);
+	if (!event)
+		return QDF_STATUS_E_FAULT;
+
+	/* check for 'already initialized' event */
+	QDF_BUG(event->cookie != LINUX_EVENT_COOKIE);
+	if (event->cookie == LINUX_EVENT_COOKIE)
+		return QDF_STATUS_E_BUSY;
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 
 	/* initialize new event */
 	init_completion(&event->complete);
@@ -98,6 +121,7 @@ qdf_export_symbol(qdf_event_create);
  */
 QDF_STATUS qdf_event_set(qdf_event_t *event)
 {
+<<<<<<< HEAD
 	/* check for null pointer */
 	if (NULL == event) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
@@ -113,6 +137,16 @@ QDF_STATUS qdf_event_set(qdf_event_t *event)
 		QDF_ASSERT(0);
 		return QDF_STATUS_E_INVAL;
 	}
+=======
+	QDF_BUG(event);
+	if (!event)
+		return QDF_STATUS_E_FAULT;
+
+	/* ensure event is initialized */
+	QDF_BUG(event->cookie == LINUX_EVENT_COOKIE);
+	if (event->cookie != LINUX_EVENT_COOKIE)
+		return QDF_STATUS_E_INVAL;
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 
 	complete(&event->complete);
 
@@ -137,6 +171,7 @@ qdf_export_symbol(qdf_event_set);
  */
 QDF_STATUS qdf_event_reset(qdf_event_t *event)
 {
+<<<<<<< HEAD
 	/* check for null pointer */
 	if (NULL == event) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
@@ -155,6 +190,21 @@ QDF_STATUS qdf_event_reset(qdf_event_t *event)
 
 	/* (re)initialize event */
 	INIT_COMPLETION(event->complete);
+=======
+	QDF_BUG(event);
+	if (!event)
+		return QDF_STATUS_E_FAULT;
+
+	/* ensure event is initialized */
+	QDF_BUG(event->cookie == LINUX_EVENT_COOKIE);
+	if (event->cookie != LINUX_EVENT_COOKIE)
+		return QDF_STATUS_E_INVAL;
+
+	/* (re)initialize event */
+	event->force_set = false;
+	INIT_COMPLETION(event->complete);
+
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 	return QDF_STATUS_SUCCESS;
 }
 qdf_export_symbol(qdf_event_reset);
@@ -181,6 +231,7 @@ qdf_export_symbol(qdf_event_reset);
  */
 QDF_STATUS qdf_event_destroy(qdf_event_t *event)
 {
+<<<<<<< HEAD
 	/* check for null pointer */
 	if (NULL == event) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
@@ -196,6 +247,16 @@ QDF_STATUS qdf_event_destroy(qdf_event_t *event)
 		QDF_ASSERT(0);
 		return QDF_STATUS_E_INVAL;
 	}
+=======
+	QDF_BUG(event);
+	if (!event)
+		return QDF_STATUS_E_FAULT;
+
+	/* ensure event is initialized */
+	QDF_BUG(event->cookie == LINUX_EVENT_COOKIE);
+	if (event->cookie != LINUX_EVENT_COOKIE)
+		return QDF_STATUS_E_INVAL;
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 
 	/* make sure nobody is waiting on the event */
 	complete_all(&event->complete);
@@ -221,6 +282,7 @@ qdf_export_symbol(qdf_event_destroy);
  */
 QDF_STATUS qdf_wait_single_event(qdf_event_t *event, uint32_t timeout)
 {
+<<<<<<< HEAD
 	if (in_interrupt()) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s cannot be called from interrupt context!!!",
@@ -244,10 +306,25 @@ QDF_STATUS qdf_wait_single_event(qdf_event_t *event, uint32_t timeout)
 		QDF_ASSERT(0);
 		return QDF_STATUS_E_INVAL;
 	}
+=======
+	QDF_BUG(!in_interrupt());
+	if (in_interrupt())
+		return QDF_STATUS_E_FAULT;
+
+	QDF_BUG(event);
+	if (!event)
+		return QDF_STATUS_E_FAULT;
+
+	/* ensure event is initialized */
+	QDF_BUG(event->cookie == LINUX_EVENT_COOKIE);
+	if (event->cookie != LINUX_EVENT_COOKIE)
+		return QDF_STATUS_E_INVAL;
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 
 	if (timeout) {
 		long ret;
 
+<<<<<<< HEAD
 		ret = wait_for_completion_timeout(&event->complete,
 						  msecs_to_jiffies(timeout));
 		if (0 >= ret)
@@ -258,6 +335,19 @@ QDF_STATUS qdf_wait_single_event(qdf_event_t *event, uint32_t timeout)
 			  "Signaled for completion %s", __func__);
 		return QDF_STATUS_SUCCESS;
 	}
+=======
+		/* update the timeout if it's on an emulation platform */
+		timeout *= qdf_timer_get_multiplier();
+		ret = wait_for_completion_timeout(&event->complete,
+						  msecs_to_jiffies(timeout));
+
+		if (ret <= 0)
+			return QDF_STATUS_E_TIMEOUT;
+	} else {
+		wait_for_completion(&event->complete);
+	}
+
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 	return QDF_STATUS_SUCCESS;
 }
 qdf_export_symbol(qdf_wait_single_event);
@@ -320,6 +410,7 @@ QDF_STATUS qdf_wait_for_event_completion(qdf_event_t *event, uint32_t timeout)
 	struct qdf_evt_node *event_node;
 	QDF_STATUS status;
 
+<<<<<<< HEAD
 	if (in_interrupt()) {
 		QDF_TRACE(QDF_MODULE_ID_QDF, QDF_TRACE_LEVEL_ERROR,
 			  "%s cannot be called from interrupt context!!!",
@@ -363,11 +454,42 @@ QDF_STATUS qdf_wait_for_event_completion(qdf_event_t *event, uint32_t timeout)
 			"Failed to add event in the list in %s", __func__);
 		status = QDF_STATUS_E_FAULT;
 		goto err_list_add;
+=======
+	QDF_BUG(!in_interrupt());
+	if (in_interrupt())
+		return QDF_STATUS_E_FAULT;
+
+	QDF_BUG(event);
+	if (!event)
+		return QDF_STATUS_E_FAULT;
+
+	/* ensure event is initialized */
+	QDF_BUG(event->cookie == LINUX_EVENT_COOKIE);
+	if (event->cookie != LINUX_EVENT_COOKIE)
+		return QDF_STATUS_E_INVAL;
+
+	event_node = qdf_mem_malloc(sizeof(*event_node));
+	if (!event_node) {
+		qdf_err("Out of memory");
+		return QDF_STATUS_E_NOMEM;
+	}
+
+	event_node->pevent = event;
+
+	qdf_spin_lock(&qdf_wait_event_lock);
+	status = qdf_list_insert_back(&qdf_wait_event_list, &event_node->node);
+	qdf_spin_unlock(&qdf_wait_event_lock);
+
+	if (QDF_STATUS_SUCCESS != status) {
+		qdf_err("Failed to insert event into tracking list");
+		goto free_node;
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 	}
 
 	if (timeout) {
 		long ret;
 
+<<<<<<< HEAD
 		ret = wait_for_completion_timeout(&event->complete,
 						  msecs_to_jiffies(timeout));
 		if (0 >= ret)
@@ -397,6 +519,33 @@ QDF_STATUS qdf_wait_for_event_completion(qdf_event_t *event, uint32_t timeout)
 	qdf_spin_unlock(&qdf_wait_event_lock);
 err_list_add:
 	qdf_mem_free(event_node);
+=======
+		/* update the timeout if it's on an emulation platform */
+		timeout *= qdf_timer_get_multiplier();
+		ret = wait_for_completion_timeout(&event->complete,
+						  msecs_to_jiffies(timeout));
+
+		if (ret <= 0) {
+			status = QDF_STATUS_E_TIMEOUT;
+			goto list_remove;
+		}
+	} else {
+		wait_for_completion(&event->complete);
+	}
+
+	/* if event was forcefully completed, return failure */
+	if (event->force_set)
+		status = QDF_STATUS_E_FAULT;
+
+list_remove:
+	qdf_spin_lock(&qdf_wait_event_lock);
+	qdf_list_remove_node(&qdf_wait_event_list, &event_node->node);
+	qdf_spin_unlock(&qdf_wait_event_lock);
+
+free_node:
+	qdf_mem_free(event_node);
+
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
 	return status;
 }
 qdf_export_symbol(qdf_wait_for_event_completion);
@@ -431,3 +580,17 @@ void qdf_event_list_destroy(void)
 	qdf_spinlock_destroy(&qdf_wait_event_lock);
 }
 qdf_export_symbol(qdf_event_list_destroy);
+<<<<<<< HEAD
+=======
+
+QDF_STATUS qdf_exit_thread(QDF_STATUS status)
+{
+	if (status == QDF_STATUS_SUCCESS)
+		do_exit(0);
+	else
+		do_exit(SIGKILL);
+
+	return QDF_STATUS_SUCCESS;
+}
+qdf_export_symbol(qdf_exit_thread);
+>>>>>>> parent of 0376547b606c0... Revert "staging: Import wifi driver stack from LA.UM.8.4.r1-04700-8x98.0"
