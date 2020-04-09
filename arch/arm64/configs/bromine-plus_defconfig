@@ -1,6 +1,6 @@
 #
 # Automatically generated file; DO NOT EDIT.
-# Linux/arm64 4.4.213 Kernel Configuration
+# Linux/arm64 4.4.218 Kernel Configuration
 #
 CONFIG_ARM64=y
 CONFIG_64BIT=y
@@ -4014,7 +4014,8 @@ CONFIG_QCOM_TDLS=y
 CONFIG_QCOM_LTE_COEX=y
 # CONFIG_MPC_UT_FRAMEWORK is not set
 CONFIG_WLAN_OFFLOAD_PACKETS=y
-# CONFIG_FEATURE_TSO is not set
+CONFIG_FEATURE_TSO=y
+# CONFIG_FEATURE_TSO_DEBUG is not set
 CONFIG_WLAN_FASTPATH=y
 CONFIG_WLAN_NAPI=y
 # CONFIG_WLAN_NAPI_DEBUG is not set
