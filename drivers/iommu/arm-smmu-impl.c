@@ -170,7 +170,8 @@ struct arm_smmu_device *arm_smmu_impl_init(struct arm_smmu_device *smmu)
 				  "calxeda,smmu-secure-config-access"))
 		smmu->impl = &calxeda_impl;
 
-	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm845-smmu-500"))
+	if (of_device_is_compatible(smmu->dev->of_node, "qcom,sdm845-smmu-500") ||
+	    of_device_is_compatible(smmu->dev->of_node, "qcom,msm8998-smmu-v2"))
 		return qcom_smmu_impl_init(smmu);
 
 	return smmu;
