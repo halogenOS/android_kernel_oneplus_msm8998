@@ -89,6 +89,57 @@
 	};
 };
 
+&mdss {
+	status = "okay";
+};
+
+&mdss_mdp {
+	status = "okay";
+};
+
+&dsi0_phy {
+	status = "okay";
+
+	vdds-supply = <&vreg_l1a_0p875>; // 0,88 V
+};
+
+&dsi0 {
+	status = "okay";
+
+	vddio-supply = <&vreg_s4a_1p8>; // 1,8 V
+
+	panel: panel@0 {
+		compatible = "samsung,s6e3fa5";
+		reg = <0>;
+
+		pinctrl-names = "mdss_default", "mdss_sleep";
+		pinctrl-0 = <&mdss_default>;
+		pinctrl-1 = <&mdss_sleep>;
+
+		reset-gpios = <&tlmm 94 0>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+			port@0 {
+				reg = <0>;
+				panel_in: endpoint {
+					remote-endpoint = <&dsi0_out>;
+				};
+			};
+		};
+	};
+
+	ports {
+		port@1 {
+			endpoint {
+				remote-endpoint = <&panel_in>;
+				data-lanes = <0 1 2 3>;
+			};
+		};
+	};
+};
+
 &blsp1_i2c5 {
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&blsp1_i2c5_default>;
@@ -346,6 +397,32 @@
 
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <81 4>;
+
+	mdss_default: mdss_dsi_active {
+		mux {
+			pins = "gpio94", "gpio91", "gpio51";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio94", "gpio91", "gpio51";
+			drive-strength = <8>; // 8 mA
+			bias-disable; // no pull
+		};
+	};
+
+	mdss_sleep: mdss_dsi_suspend {
+		mux {
+			pins = "gpio94", "gpio91", "gpio51";
+			function = "gpio";
+		};
+
+		config {
+			pins = "gpio94", "gpio91", "gpio51";
+			drive-strength = <2>; // 2 mA
+			bias-pull-down;
+		};
+	};
 
 	touch_default: touch_default {
 		mux {
