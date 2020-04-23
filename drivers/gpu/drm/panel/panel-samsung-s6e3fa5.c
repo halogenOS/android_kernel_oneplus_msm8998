@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
-// Copyright (c) 2020 FIXME
-// Generated with linux-mdss-dsi-panel-driver-generator from vendor device tree:
-//   Copyright (c) 2013, The Linux Foundation. All rights reserved. (FIXME)
+// Copyright (c) 2020, The Linux Foundation. All rights reserved.
 
 #include <linux/backlight.h>
 #include <linux/delay.h>
@@ -19,11 +17,11 @@ struct s6e3fa5 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
 	struct gpio_desc *reset_gpio;
+
 	bool prepared;
 };
 
-static inline
-struct s6e3fa5 *to_s6e3fa5(struct drm_panel *panel)
+static inline struct s6e3fa5 *to_s6e3fa5(struct drm_panel *panel)
 {
 	return container_of(panel, struct s6e3fa5, panel);
 }
@@ -155,22 +153,22 @@ static int s6e3fa5_unprepare(struct drm_panel *panel)
 }
 
 static const struct drm_display_mode s6e3fa5_mode = {
-	.clock = (1080 + 120 + 19 + 70) * (1920 + 18 + 2 + 4) * 60 / 1000,
+	.clock = (1080 + 120 + 19 + 70) * (1920 + 18 + 2 + 4) * 60 / 1000, // 150348.96
 	.hdisplay = 1080,
-	.hsync_start = 1080 + 120,
-	.hsync_end = 1080 + 120 + 19,
-	.htotal = 1080 + 120 + 19 + 70,
+	.hsync_start = 1080 + 120,      // 1200
+	.hsync_end = 1080 + 120 + 19,   // 1219
+	.htotal = 1080 + 120 + 19 + 70, // 1289
 	.vdisplay = 1920,
-	.vsync_start = 1920 + 18,
-	.vsync_end = 1920 + 18 + 2,
-	.vtotal = 1920 + 18 + 2 + 4,
+	.vsync_start = 1920 + 18,    // 1938
+	.vsync_end = 1920 + 18 + 2,  // 1940
+	.vtotal = 1920 + 18 + 2 + 4, // 1944
 	.vrefresh = 60,
 	.width_mm = 68,
 	.height_mm = 122,
 };
 
 static int s6e3fa5_get_modes(struct drm_panel *panel,
-				     struct drm_connector *connector)
+			     struct drm_connector *connector)
 {
 	struct drm_display_mode *mode;
 
@@ -335,6 +333,6 @@ static struct mipi_dsi_driver s6e3fa5_driver = {
 };
 module_mipi_dsi_driver(s6e3fa5_driver);
 
-MODULE_AUTHOR("linux-mdss-dsi-panel-driver-generator <fix@me>"); // FIXME
-MODULE_DESCRIPTION("DRM driver for samsung s6e3fa5 1080p cmd mode dsi panel");
+MODULE_AUTHOR("Jami Kettunen <jami.kettunen@protonmail.com>");
+MODULE_DESCRIPTION("DRM driver for Samsung S6E3FA5 FHD AMOLED command mode panel");
 MODULE_LICENSE("GPL v2");

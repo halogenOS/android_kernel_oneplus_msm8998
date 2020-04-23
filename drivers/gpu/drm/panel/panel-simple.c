@@ -3571,15 +3571,15 @@ struct panel_desc_dsi {
 };
 
 static const struct drm_display_mode samsung_s6e3fa5_mode = {
-	.clock = (1080 + 120 + 19 + 70) * (1920 + 18 + 2 + 4) * 60 / 1000,
+	.clock = (1080 + 120 + 19 + 70) * (1920 + 18 + 2 + 4) * 60 / 1000, // 150348.96
 	.hdisplay = 1080,
-	.hsync_start = 1080 + 120,
-	.hsync_end = 1080 + 120 + 19,
-	.htotal = 1080 + 120 + 19 + 70,
+	.hsync_start = 1080 + 120,      // 1200
+	.hsync_end = 1080 + 120 + 19,   // 1219
+	.htotal = 1080 + 120 + 19 + 70, // 1289
 	.vdisplay = 1920,
-	.vsync_start = 1920 + 18,
-	.vsync_end = 1920 + 18 + 2,
-	.vtotal = 1920 + 18 + 2 + 4,
+	.vsync_start = 1920 + 18,    // 1938
+	.vsync_end = 1920 + 18 + 2,  // 1940
+	.vtotal = 1920 + 18 + 2 + 4, // 1944
 	.vrefresh = 60,
 	.width_mm = 68,
 	.height_mm = 122,
