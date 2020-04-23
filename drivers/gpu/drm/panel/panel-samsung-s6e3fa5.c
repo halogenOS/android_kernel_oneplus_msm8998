@@ -15,7 +15,7 @@
 #include <drm/drm_modes.h>
 #include <drm/drm_panel.h>
 
-struct samsung_s6e3fa5 {
+struct s6e3fa5 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
 	struct gpio_desc *reset_gpio;
@@ -23,9 +23,9 @@ struct samsung_s6e3fa5 {
 };
 
 static inline
-struct samsung_s6e3fa5 *to_samsung_s6e3fa5(struct drm_panel *panel)
+struct s6e3fa5 *to_s6e3fa5(struct drm_panel *panel)
 {
-	return container_of(panel, struct samsung_s6e3fa5, panel);
+	return container_of(panel, struct s6e3fa5, panel);
 }
 
 #define dsi_dcs_write_seq(dsi, seq...) do {				\
@@ -36,7 +36,7 @@ struct samsung_s6e3fa5 *to_samsung_s6e3fa5(struct drm_panel *panel)
 			return ret;					\
 	} while (0)
 
-static void samsung_s6e3fa5_reset(struct samsung_s6e3fa5 *ctx)
+static void s6e3fa5_reset(struct s6e3fa5 *ctx)
 {
 	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
 	usleep_range(2000, 3000);
@@ -46,7 +46,7 @@ static void samsung_s6e3fa5_reset(struct samsung_s6e3fa5 *ctx)
 	usleep_range(2000, 3000);
 }
 
-static int samsung_s6e3fa5_on(struct samsung_s6e3fa5 *ctx)
+static int s6e3fa5_on(struct s6e3fa5 *ctx)
 {
 	struct mipi_dsi_device *dsi = ctx->dsi;
 	struct device *dev = &dsi->dev;
@@ -88,7 +88,7 @@ static int samsung_s6e3fa5_on(struct samsung_s6e3fa5 *ctx)
 	return 0;
 }
 
-static int samsung_s6e3fa5_off(struct samsung_s6e3fa5 *ctx)
+static int s6e3fa5_off(struct s6e3fa5 *ctx)
 {
 	struct mipi_dsi_device *dsi = ctx->dsi;
 	struct device *dev = &dsi->dev;
@@ -113,18 +113,18 @@ static int samsung_s6e3fa5_off(struct samsung_s6e3fa5 *ctx)
 	return 0;
 }
 
-static int samsung_s6e3fa5_prepare(struct drm_panel *panel)
+static int s6e3fa5_prepare(struct drm_panel *panel)
 {
-	struct samsung_s6e3fa5 *ctx = to_samsung_s6e3fa5(panel);
+	struct s6e3fa5 *ctx = to_s6e3fa5(panel);
 	struct device *dev = &ctx->dsi->dev;
 	int ret;
 
 	if (ctx->prepared)
 		return 0;
 
-	samsung_s6e3fa5_reset(ctx);
+	s6e3fa5_reset(ctx);
 
-	ret = samsung_s6e3fa5_on(ctx);
+	ret = s6e3fa5_on(ctx);
 	if (ret < 0) {
 		dev_err(dev, "Failed to initialize panel: %d\n", ret);
 		gpiod_set_value_cansleep(ctx->reset_gpio, 0);
@@ -135,16 +135,16 @@ static int samsung_s6e3fa5_prepare(struct drm_panel *panel)
 	return 0;
 }
 
-static int samsung_s6e3fa5_unprepare(struct drm_panel *panel)
+static int s6e3fa5_unprepare(struct drm_panel *panel)
 {
-	struct samsung_s6e3fa5 *ctx = to_samsung_s6e3fa5(panel);
+	struct s6e3fa5 *ctx = to_s6e3fa5(panel);
 	struct device *dev = &ctx->dsi->dev;
 	int ret;
 
 	if (!ctx->prepared)
 		return 0;
 
-	ret = samsung_s6e3fa5_off(ctx);
+	ret = s6e3fa5_off(ctx);
 	if (ret < 0)
 		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
 
@@ -154,7 +154,7 @@ static int samsung_s6e3fa5_unprepare(struct drm_panel *panel)
 	return 0;
 }
 
-static const struct drm_display_mode samsung_s6e3fa5_mode = {
+static const struct drm_display_mode s6e3fa5_mode = {
 	.clock = (1080 + 120 + 19 + 70) * (1920 + 18 + 2 + 4) * 60 / 1000,
 	.hdisplay = 1080,
 	.hsync_start = 1080 + 120,
@@ -169,12 +169,12 @@ static const struct drm_display_mode samsung_s6e3fa5_mode = {
 	.height_mm = 122,
 };
 
-static int samsung_s6e3fa5_get_modes(struct drm_panel *panel,
+static int s6e3fa5_get_modes(struct drm_panel *panel,
 				     struct drm_connector *connector)
 {
 	struct drm_display_mode *mode;
 
-	mode = drm_mode_duplicate(connector->dev, &samsung_s6e3fa5_mode);
+	mode = drm_mode_duplicate(connector->dev, &s6e3fa5_mode);
 	if (!mode)
 		return -ENOMEM;
 
@@ -188,13 +188,13 @@ static int samsung_s6e3fa5_get_modes(struct drm_panel *panel,
 	return 1;
 }
 
-static const struct drm_panel_funcs samsung_s6e3fa5_panel_funcs = {
-	.prepare = samsung_s6e3fa5_prepare,
-	.unprepare = samsung_s6e3fa5_unprepare,
-	.get_modes = samsung_s6e3fa5_get_modes,
+static const struct drm_panel_funcs s6e3fa5_panel_funcs = {
+	.prepare = s6e3fa5_prepare,
+	.unprepare = s6e3fa5_unprepare,
+	.get_modes = s6e3fa5_get_modes,
 };
 
-static int samsung_s6e3fa5_bl_update_status(struct backlight_device *bl)
+static int s6e3fa5_bl_update_status(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
 	u16 brightness = bl->props.brightness;
@@ -218,7 +218,7 @@ static int samsung_s6e3fa5_bl_update_status(struct backlight_device *bl)
 
 // TODO: Check if /sys/class/backlight/.../actual_brightness actually returns
 // correct values. If not, remove this function.
-static int samsung_s6e3fa5_bl_get_brightness(struct backlight_device *bl)
+static int s6e3fa5_bl_get_brightness(struct backlight_device *bl)
 {
 	struct mipi_dsi_device *dsi = bl_get_data(bl);
 	u16 brightness = bl->props.brightness;
@@ -235,13 +235,13 @@ static int samsung_s6e3fa5_bl_get_brightness(struct backlight_device *bl)
 	return brightness & 0xff;
 }
 
-static const struct backlight_ops samsung_s6e3fa5_bl_ops = {
-	.update_status = samsung_s6e3fa5_bl_update_status,
-	.get_brightness = samsung_s6e3fa5_bl_get_brightness,
+static const struct backlight_ops s6e3fa5_bl_ops = {
+	.update_status = s6e3fa5_bl_update_status,
+	.get_brightness = s6e3fa5_bl_get_brightness,
 };
 
 static struct backlight_device *
-samsung_s6e3fa5_create_backlight(struct mipi_dsi_device *dsi)
+s6e3fa5_create_backlight(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
 	struct backlight_properties props = {
@@ -251,13 +251,13 @@ samsung_s6e3fa5_create_backlight(struct mipi_dsi_device *dsi)
 	};
 
 	return devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
-					      &samsung_s6e3fa5_bl_ops, &props);
+					      &s6e3fa5_bl_ops, &props);
 }
 
-static int samsung_s6e3fa5_probe(struct mipi_dsi_device *dsi)
+static int s6e3fa5_probe(struct mipi_dsi_device *dsi)
 {
 	struct device *dev = &dsi->dev;
-	struct samsung_s6e3fa5 *ctx;
+	struct s6e3fa5 *ctx;
 	int ret;
 
 	ctx = devm_kzalloc(dev, sizeof(*ctx), GFP_KERNEL);
@@ -280,10 +280,10 @@ static int samsung_s6e3fa5_probe(struct mipi_dsi_device *dsi)
 			  MIPI_DSI_MODE_EOT_PACKET |
 			  MIPI_DSI_CLOCK_NON_CONTINUOUS;
 
-	drm_panel_init(&ctx->panel, dev, &samsung_s6e3fa5_panel_funcs,
+	drm_panel_init(&ctx->panel, dev, &s6e3fa5_panel_funcs,
 		       DRM_MODE_CONNECTOR_DSI);
 
-	ctx->panel.backlight = samsung_s6e3fa5_create_backlight(dsi);
+	ctx->panel.backlight = s6e3fa5_create_backlight(dsi);
 	if (IS_ERR(ctx->panel.backlight)) {
 		ret = PTR_ERR(ctx->panel.backlight);
 		dev_err(dev, "Failed to create backlight: %d\n", ret);
@@ -305,9 +305,9 @@ static int samsung_s6e3fa5_probe(struct mipi_dsi_device *dsi)
 	return 0;
 }
 
-static int samsung_s6e3fa5_remove(struct mipi_dsi_device *dsi)
+static int s6e3fa5_remove(struct mipi_dsi_device *dsi)
 {
-	struct samsung_s6e3fa5 *ctx = mipi_dsi_get_drvdata(dsi);
+	struct s6e3fa5 *ctx = mipi_dsi_get_drvdata(dsi);
 	int ret;
 
 	ret = mipi_dsi_detach(dsi);
@@ -319,21 +319,21 @@ static int samsung_s6e3fa5_remove(struct mipi_dsi_device *dsi)
 	return 0;
 }
 
-static const struct of_device_id samsung_s6e3fa5_of_match[] = {
+static const struct of_device_id s6e3fa5_of_match[] = {
 	{ .compatible = "samsung,s6e3fa5" },
 	{ /* sentinel */ }
 };
-MODULE_DEVICE_TABLE(of, samsung_s6e3fa5_of_match);
+MODULE_DEVICE_TABLE(of, s6e3fa5_of_match);
 
-static struct mipi_dsi_driver samsung_s6e3fa5_driver = {
-	.probe = samsung_s6e3fa5_probe,
-	.remove = samsung_s6e3fa5_remove,
+static struct mipi_dsi_driver s6e3fa5_driver = {
+	.probe = s6e3fa5_probe,
+	.remove = s6e3fa5_remove,
 	.driver = {
 		.name = "panel-samsung-s6e3fa5",
-		.of_match_table = samsung_s6e3fa5_of_match,
+		.of_match_table = s6e3fa5_of_match,
 	},
 };
-module_mipi_dsi_driver(samsung_s6e3fa5_driver);
+module_mipi_dsi_driver(s6e3fa5_driver);
 
 MODULE_AUTHOR("linux-mdss-dsi-panel-driver-generator <fix@me>"); // FIXME
 MODULE_DESCRIPTION("DRM driver for samsung s6e3fa5 1080p cmd mode dsi panel");
