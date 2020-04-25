@@ -111,6 +111,8 @@
 	panel: panel@0 {
 		compatible = "samsung,s6e3fa5";
 		reg = <0>;
+		#address-cells = <1>;
+		#size-cells = <0>;
 
 		pinctrl-names = "mdss_default", "mdss_sleep";
 		pinctrl-0 = <&mdss_default>;
@@ -120,26 +122,17 @@
 
 		vddio-supply = <&vreg_l14a_1p88>; // 1,88 V
 
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-			port@0 {
-				reg = <0>;
-				panel_in: endpoint {
-					remote-endpoint = <&dsi0_out>;
-				};
+		port {
+			panel_in: endpoint {
+				remote-endpoint = <&dsi0_out>;
 			};
 		};
 	};
+};
 
-	ports {
-		port@1 {
-			endpoint {
-				remote-endpoint = <&panel_in>;
-				data-lanes = <0 1 2 3>;
-			};
-		};
-	};
+&dsi0_out {
+	remote-endpoint = <&panel_in>;
+	data-lanes = <0 1 2 3>;
 };
 
 &blsp1_i2c5 {
