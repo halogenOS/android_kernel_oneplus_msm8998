@@ -108,15 +108,15 @@
 
 	vddio-supply = <&vreg_l14a_1p88>; // 1,88 V
 
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&dsi_default>;
+	pinctrl-1 = <&dsi_sleep>;
+
 	panel: panel@0 {
 		compatible = "samsung,s6e3fa5";
 		reg = <0>;
 		#address-cells = <1>;
 		#size-cells = <0>;
-
-		pinctrl-names = "mdss_default", "mdss_sleep";
-		pinctrl-0 = <&mdss_default>;
-		pinctrl-1 = <&mdss_sleep>;
 
 		reset-gpios = <&tlmm 94 0>;
 
@@ -393,7 +393,7 @@
 &tlmm {
 	gpio-reserved-ranges = <0 4>, <81 4>;
 
-	mdss_default: mdss_dsi_active {
+	dsi_default: mdss_dsi_active {
 		mux {
 			pins = "gpio94", "gpio91", "gpio51";
 			function = "gpio";
@@ -406,7 +406,7 @@
 		};
 	};
 
-	mdss_sleep: mdss_dsi_suspend {
+	dsi_sleep: mdss_dsi_suspend {
 		mux {
 			pins = "gpio94", "gpio91", "gpio51";
 			function = "gpio";
