@@ -6,6 +6,7 @@
 #include <linux/gpio/consumer.h>
 #include <linux/module.h>
 #include <linux/of.h>
+#include <linux/regulator/consumer.h>
 
 #include <video/mipi_display.h>
 
@@ -16,6 +17,7 @@
 struct s6e3fa5 {
 	struct drm_panel panel;
 	struct mipi_dsi_device *dsi;
+	struct regulator *supply;
 	struct gpio_desc *reset_gpio;
 
 	bool prepared;
@@ -120,12 +122,19 @@ static int s6e3fa5_prepare(struct drm_panel *panel)
 	if (ctx->prepared)
 		return 0;
 
+	ret = regulator_enable(ctx->supply);
+	if (ret < 0) {
+		dev_err(dev, "Failed to enable regulator: %d\n", ret);
+		return ret;
+	}
+
 	s6e3fa5_reset(ctx);
 
 	ret = s6e3fa5_on(ctx);
 	if (ret < 0) {
 		dev_err(dev, "Failed to initialize panel: %d\n", ret);
 		gpiod_set_value_cansleep(ctx->reset_gpio, 0);
+		regulator_disable(ctx->supply);
 		return ret;
 	}
 
@@ -147,6 +156,7 @@ static int s6e3fa5_unprepare(struct drm_panel *panel)
 		dev_err(dev, "Failed to un-initialize panel: %d\n", ret);
 
 	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
+	regulator_disable(ctx->supply);
 
 	ctx->prepared = false;
 	return 0;
@@ -261,6 +271,13 @@ static int s6e3fa5_probe(struct mipi_dsi_device *dsi)
 	ctx = devm_kzalloc(dev, sizeof(*ctx), GFP_KERNEL);
 	if (!ctx)
 		return -ENOMEM;
+
+	ctx->supply = devm_regulator_get(dev, "vddio");
+	if (IS_ERR(ctx->supply)) {
+		ret = PTR_ERR(ctx->supply);
+		dev_err(dev, "Failed to get vddio regulator: %d\n", ret);
+		return ret;
+	}
 
 	ctx->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_LOW);
 	if (IS_ERR(ctx->reset_gpio)) {
