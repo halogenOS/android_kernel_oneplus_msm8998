@@ -106,7 +106,7 @@
 &dsi0 {
 	status = "okay";
 
-	vddio-supply = <&vreg_s4a_1p8>; // 1,8 V
+	vddio-supply = <&vreg_l14a_1p88>; // 1,88 V
 
 	panel: panel@0 {
 		compatible = "samsung,s6e3fa5";
@@ -117,6 +117,8 @@
 		pinctrl-1 = <&mdss_sleep>;
 
 		reset-gpios = <&tlmm 94 0>;
+
+		vddio-supply = <&vreg_l14a_1p88>; // 1,88 V
 
 		ports {
 			#address-cells = <1>;
