@@ -9,6 +9,13 @@ config COMMON_CLK_MSM
 	  Say Y if you want to support the clocks exposed by the MSM on
 	  platforms such as msm8996, msm8998 etc.
 
+config COMMON_CLK_MSM_DEBUG
+    bool "MSM clock debug"
+    default n
+    depends on COMMON_CLK_MSM
+    help
+      Only enable this if you know what this does.
+
 config MSM_CLK_CONTROLLER_V2
 	bool "QTI clock driver"
 	depends on COMMON_CLK_MSM
