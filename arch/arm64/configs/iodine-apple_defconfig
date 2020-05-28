@@ -1016,6 +1016,7 @@ CONFIG_NET_SCH_MULTIQ=y
 # CONFIG_NET_SCH_PIE is not set
 CONFIG_NET_SCH_INGRESS=y
 # CONFIG_NET_SCH_PLUG is not set
+# CONFIG_NET_SCH_DEFAULT is not set
 
 #
 # Classification
