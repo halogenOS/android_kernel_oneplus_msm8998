@@ -165,8 +165,8 @@ struct test_header {
 #define KEY_GESTURE_LEFT_ARROW      253 // draw left arrow for previous track
 #define KEY_GESTURE_RIGHT_ARROW     254 // draw right arrow for next track
 #define KEY_GESTURE_DOWN_ARROW      255 // draw down arrow to toggle flashlight
-#define KEY_GESTURE_SWIPE_RIGHT     KEY_F5
-#define KEY_GESTURE_SWIPE_LEFT      KEY_F6
+#define KEY_GESTURE_SWIPE_LEFT      KEY_F5
+#define KEY_GESTURE_SWIPE_RIGHT     KEY_F6
 #define KEY_GESTURE_SWIPE_DOWN      KEY_F7
 #define KEY_GESTURE_SWIPE_UP        KEY_F8
 #endif
