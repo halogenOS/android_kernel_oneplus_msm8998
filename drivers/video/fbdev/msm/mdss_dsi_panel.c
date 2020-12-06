@@ -27,6 +27,10 @@
 #include "mdss_dba_utils.h"
 #include "mdss_debug.h"
 
+#ifdef CONFIG_FLICKER_FREE
+#include "flicker_free.h"
+#endif
+
 #include <linux/clk.h>
 #include <linux/project_info.h>
 #if defined(CONFIG_IRIS2P_FULL_SUPPORT)
@@ -1058,64 +1062,71 @@ static void mdss_dsi_panel_bl_ctrl(struct mdss_panel_data *pdata,
 	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
 				panel_data);
 
-	if (ctrl_pdata->high_brightness_panel){
-		pr_debug("%s goto backlight level remap\n", __func__);
-		bl_level = backlight_level_remap(ctrl_pdata, bl_level);
-	}
-	/*
-	 * Some backlight controllers specify a minimum duty cycle
-	 * for the backlight brightness. If the brightness is less
-	 * than it, the controller can malfunction.
-	 */
-	pr_debug("%s: bl_level:%d\n", __func__, bl_level);
+    if (ctrl_pdata->high_brightness_panel){
+       pr_debug("%s goto backlight level remap\n", __func__);
+       bl_level = backlight_level_remap(ctrl_pdata, bl_level);
+    }
+	 /*
+	  * Some backlight controllers specify a minimum duty cycle
+	  * for the backlight brightness. If the brightness is less
+	  * than it, the controller can malfunction.
+	  */
+     pr_debug("%s: bl_level:%d\n", __func__, bl_level);
 
-	/* do not allow backlight to change when panel in disable mode */
-	if (pdata->panel_disable_mode && (bl_level != 0))
-		return;
+	 /* do not allow backlight to change when panel in disable mode */
+	 if (pdata->panel_disable_mode && (bl_level != 0))
+		 return;
 
-	if ((bl_level < pdata->panel_info.bl_min) && (bl_level != 0))
-		bl_level = pdata->panel_info.bl_min;
+	 if ((bl_level < pdata->panel_info.bl_min) && (bl_level != 0))
+		 bl_level = pdata->panel_info.bl_min;
 
-	/* enable the backlight gpio if present */
-	mdss_dsi_bl_gpio_ctrl(pdata, bl_level);
+#ifdef CONFIG_FLICKER_FREE
+	/* remap backlight value */
+	if (bl_level != 0)
+		bl_level = mdss_panel_calc_backlight(bl_level);
+#endif
 
-	switch (ctrl_pdata->bklt_ctrl) {
-	case BL_WLED:
-		led_trigger_event(bl_led_trigger, bl_level);
-		break;
-	case BL_PWM:
-		mdss_dsi_panel_bklt_pwm(ctrl_pdata, bl_level);
-		break;
-	case BL_DCS_CMD:
-		if (!mdss_dsi_sync_wait_enable(ctrl_pdata)) {
-			mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
-			break;
-		}
-		/*
-		 * DCS commands to update backlight are usually sent at
-		 * the same time to both the controllers. However, if
-		 * sync_wait is enabled, we need to ensure that the
-		 * dcs commands are first sent to the non-trigger
-		 * controller so that when the commands are triggered,
-		 * both controllers receive it at the same time.
-		 */
-		sctrl = mdss_dsi_get_other_ctrl(ctrl_pdata);
-		if (mdss_dsi_sync_wait_trigger(ctrl_pdata)) {
-			if (sctrl)
-				mdss_dsi_panel_bklt_dcs(sctrl, bl_level);
-			mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
-		} else {
-			mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
-			if (sctrl)
-				mdss_dsi_panel_bklt_dcs(sctrl, bl_level);
-		}
-		break;
-	default:
-		pr_err("%s: Unknown bl_ctrl configuration\n",
-			__func__);
-		break;
-	}
-}
+	 /* enable the backlight gpio if present */
+	 mdss_dsi_bl_gpio_ctrl(pdata, bl_level);
+
+	 switch (ctrl_pdata->bklt_ctrl) {
+	 case BL_WLED:
+		 led_trigger_event(bl_led_trigger, bl_level);
+		 break;
+	 case BL_PWM:
+		 mdss_dsi_panel_bklt_pwm(ctrl_pdata, bl_level);
+		 break;
+	 case BL_DCS_CMD:
+		 if (!mdss_dsi_sync_wait_enable(ctrl_pdata)) {
+			 mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
+			 break;
+		 }
+		 /*
+		  * DCS commands to update backlight are usually sent at
+		  * the same time to both the controllers. However, if
+		  * sync_wait is enabled, we need to ensure that the
+		  * dcs commands are first sent to the non-trigger
+		  * controller so that when the commands are triggered,
+		  * both controllers receive it at the same time.
+		  */
+		 sctrl = mdss_dsi_get_other_ctrl(ctrl_pdata);
+		 if (mdss_dsi_sync_wait_trigger(ctrl_pdata)) {
+			 if (sctrl)
+				 mdss_dsi_panel_bklt_dcs(sctrl, bl_level);
+			 mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
+		 } else {
+			 mdss_dsi_panel_bklt_dcs(ctrl_pdata, bl_level);
+			 if (sctrl)
+				 mdss_dsi_panel_bklt_dcs(sctrl, bl_level);
+		 }
+		 break;
+	 default:
+		 pr_err("%s: Unknown bl_ctrl configuration\n",
+			 __func__);
+		 break;
+	 }
+ }
+
 
 int mdss_dsi_panel_set_srgb_mode(struct mdss_dsi_ctrl_pdata *ctrl, int level)
 {
