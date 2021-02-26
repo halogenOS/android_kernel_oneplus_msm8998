@@ -9,8 +9,7 @@
 #include "queueing.h"
 #include "ratelimiter.h"
 #include "netlink.h"
-
-#include <uapi/linux/wireguard.h>
+#include "uapi/wireguard.h"
 #include "crypto/zinc.h"
 
 #include <linux/init.h>
