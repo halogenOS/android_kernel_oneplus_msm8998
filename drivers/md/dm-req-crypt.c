@@ -15,6 +15,9 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/bio.h>
+
+#define SECTOR_SIZE 512
+
 #include <linux/blkdev.h>
 #include <linux/mempool.h>
 #include <linux/slab.h>
@@ -45,7 +48,6 @@
 #define KEY_SIZE_XTS 32
 #define AES_XTS_IV_LEN 16
 #define MAX_MSM_ICE_KEY_LUT_SIZE 32
-#define SECTOR_SIZE 512
 #define MIN_CRYPTO_TRANSFER_SIZE (4 * 1024)
 
 #define DM_REQ_CRYPT_ERROR -1
